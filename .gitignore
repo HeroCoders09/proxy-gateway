@@ -1,0 +1,5 @@
+build/
+build-*/
+testbed/.run/
+*.log
+__pycache__/
