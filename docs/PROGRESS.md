@@ -3,10 +3,10 @@
 Newest entries at the bottom of the Log. Times are UTC.
 
 ## Current state (keep this block up to date)
-- Current phase: 3 done. Next: Phase 4
-- Current owner: Phase 3 owner
-- Branch: `phase-3-Routing`
-- Last green build and test run: 2026-11-01 18:57 UTC (82 test cases / 1,345 assertions, normal and ASan/UBSan)
+- Current phase: 4 done. Next: Phase 5
+- Current owner: Codex
+- Branch: `phase-4-health`
+- Last green build and test run: 2026-11-02 02:05 UTC (88 test cases / 1,401 assertions, normal and ASan/UBSan)
 - Command that shows current state: `git status --short --branch && cmake -S . -B build && cmake --build build -j && ./build/pg_tests`
 
 ### Phase status tracker (mirror of handbook 10.3)
@@ -16,7 +16,7 @@ Newest entries at the bottom of the Log. Times are UTC.
 | 1 | Foundation and skeleton | Gourav + Claude agent | Done (tag `phase-1-done`) | `docs/HANDOFF_PHASE_1.md` |
 | 2 | Scheduling and concurrency | Phase 2 owner | Done | `docs/HANDOFF_PHASE_2.md` |
 | 3 | Routing and retries | Phase 3 owner | Done | `docs/HANDOFF_PHASE_3.md` |
-| 4 | Health and fault tolerance |  | Not started | `docs/HANDOFF_PHASE_4.md` |
+| 4 | Health and fault tolerance | Codex | Done | `docs/HANDOFF_PHASE_4.md` |
 | 5 | Fast network I/O |  | Not started | `docs/HANDOFF_PHASE_5.md` |
 | 6 | Dashboard, metrics, benchmarks, demo |  | Not started | `docs/HANDOFF_PHASE_6.md` |
 
@@ -50,9 +50,20 @@ Newest entries at the bottom of the Log. Times are UTC.
 - 2026-11-01 22:58 Phase 2 owner: Baseline build, 71 tests and local smoke passed after a user-authorized stop of an unrelated process holding :8000. Added per-domain token buckets/FIFO scheduler, async client-FD ownership transfer, fixed bounded worker pool and AIMD (D-019). Normal and ASan/UBSan tests pass: 74 cases / 1,267 assertions; local smoke passes.
 - 2026-11-01 23:02 Phase 2 owner: Added live Phase 2 admin metrics and `bench/phase2_verify.py`. Local load/fault verification passed: site A max 50/s, site B 100 requests; AIMD 8 -> 4 -> 6 after injected failures and recovery.
 
+- 2026-11-02 01:00 UTC Phase 4 owner: Validated the Phase 3 starting point on `phase-3-Routing`, then created `phase-4-health`. Normal configure/build passed; `pg_tests` passed 82 cases / 1,345 assertions, local smoke passed, Phase 2 verifier passed (50/s site A; 100 site B; AIMD 8 -> 4 -> 6), ASan/UBSan configure/build/tests passed (same suite), and Phase 3 retry verifier passed (Proxy 3 timed out at 500 ms; retry via Proxy 1 returned 200). The sandbox denied loopback sockets on the first normal test attempt; rerunning networked commands with elevated access passed. Phase 3 comparison artifacts all exist. No Phase 4 source changes yet.
+- 2026-11-02 01:15 UTC Phase 4 owner: Added initial `RollingStats`, `CircuitBreaker`, GatewayCore reporting/probe integration, HALF_OPEN route exclusion, monitor thread, probe counters and proxy snapshot fields. D-024 records defaults/rules. First `cmake --build build -j` compiled the core and gateway but failed compiling new tests because bare `Approx` is not in scope with this vendored Catch2; the existing suite uses `Catch::Approx`. Fixing the test qualification next.
+- 2026-11-02 01:30 UTC Phase 4 owner: First `python3 bench/phase4_fault_verify.py` attempt started the isolated local test bed but timed out waiting for the gateway admin endpoint at port 19005. The verifier suppresses gateway stderr, so the startup reason is not yet known; it exited before fault injection and its `finally` stopped only the test bed it had started. Diagnosing gateway startup before editing the verifier.
+- 2026-11-02 01:33 UTC Phase 4 owner: Reproduced gateway startup with visible stderr; the gateway binds 18005/19005 and stays healthy. Diagnosis: the verifier's readiness predicate let the expected early `ConnectionRefusedError` escape instead of retrying, so it failed during the startup race. Fixing the harness retry behavior; no gateway code issue found.
+- 2026-11-02 01:36 UTC Phase 4 owner: After the readiness fix, fault injection opened Proxy 3 and observed `OPEN -> HALF_OPEN -> OPEN` on restart. Diagnosis: the script added a 600 ms delay while this verifier config uses a 400 ms probe deadline, so the recovery probe correctly timed out. Shortening the observation delay below the probe deadline; breaker behavior matches the configured timeout.
+- 2026-11-02 01:38 UTC Phase 4 owner: Restart recovery passed with the shorter observation delay. During the Proxy 2 delay phase, the verifier reached 4 consecutive probe failures at its 10-second polling deadline; because the probe interval is 2 seconds and the first sample can be nearly one interval away, the fifth probe had not arrived yet. Extending evidence through real requests as well as probes to exercise the documented combined health inputs.
+- 2026-11-02 01:42 UTC Phase 4 owner: Phase 4 unit suite passes (88 cases / 1,399 assertions), including rolling window, all circuit transitions, fake-clock cooldown, single HALF_OPEN gate, health derivation/recovery, router exclusion and live admin snapshots. Phase 4 fault verifier passed: Proxy 3 detected OPEN in 3.80 s; 100/100 requests succeeded while dead, zero assigned to OPEN Proxy 3; restart recovery observed OPEN -> HALF_OPEN -> CLOSED in 9.42 s; Proxy 2 1,500 ms delay detected in 4.25 s and returned CLOSED 11.64 s after removal. Evidence: `bench/results/phase4_fault_injection.md`. Initial verifier issues were diagnosed and logged above; final run is green.
+- 2026-11-02 01:46 UTC Phase 4 owner: Final normal tests pass (88 cases / 1,401 assertions) and local smoke passes. `python3 bench/phase2_verify.py` failed its AIMD recovery assertion with `(before, after, recovered) = (8, 4, 4)`; initial decrease worked, but the script sampled before an additive recovery step appeared. Inspecting verifier timing and runtime state before any code changes.
+- 2026-11-02 01:48 UTC Phase 4 owner: Diagnosed the Phase 2 verifier failure: the 20 injected 502 responses mark its sole proxy unhealthy and may open its circuit. After fault removal the recovery workload gets no route until health probing succeeds, so AIMD records more failures instead of healthy completions. Applying a minimal verifier-only isolation update; no scheduler/AIMD implementation change.
+- 2026-11-02 02:05 UTC Phase 4 owner: Final verification passed after all code changes: normal and ASan/UBSan suites each passed 88 test cases / 1,401 assertions; local smoke passed; Phase 2 verifier passed (site A 50/s; site B 100 requests; AIMD 8 -> 4 -> 6); Phase 3 retry verifier passed. Phase 4 fault injection passed with Proxy 3 detection 3.80 s, 100/100 successful requests while Proxy 3 was OPEN and zero assignments to it, OPEN -> HALF_OPEN -> CLOSED recovery in 9.42 s, and Proxy 2 delay detection/recovery evidence in `bench/results/phase4_fault_injection.md`. Wrote `docs/HANDOFF_PHASE_4.md`; I-013 remains open and D-010 unchanged.
+
 ## Stop entry (write this before stopping)
-- Done: Phase 3 routing/retry checklist complete; handoff is `docs/HANDOFF_PHASE_3.md`.
-- Half done: Nothing in Phase 3.
-- Next steps: Phase 4 starts with `docs/HANDOFF_PHASE_3.md`; integrate the health monitor and circuit breaker with the existing proxy table and eligibility filter.
+- Done: Phase 4 checklist is complete; handoff is `docs/HANDOFF_PHASE_4.md`; branch `phase-4-health` contains the implementation and validation evidence.
+- Half done: Nothing in Phase 4.
+- Next steps: Phase 5 starts from this branch after team handoff; read `docs/HANDOFF_PHASE_4.md` first.
 - Known problems: The SRS success-definition question is UNVERIFIED because the SRS is not in this checkout. See `docs/ISSUES.md` for other open items.
 - How to resume / see current state: `git status --short --branch && cmake -S . -B build && cmake --build build -j && ./build/pg_tests`

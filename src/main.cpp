@@ -11,6 +11,7 @@
 #include "common/log.hpp"
 #include "common/metrics.hpp"
 #include "gateway/gateway_core.hpp"
+#include "health/health_monitor.hpp"
 #include "ingress/listener.hpp"
 #include "net/simple_forwarder.hpp"
 #include "scheduler/domain_scheduler.hpp"
@@ -53,6 +54,7 @@ int main(int argc, char** argv) {
   Metrics metrics;
   SimpleForwarder forwarder(cfg.connect_timeout_ms, cfg.response_timeout_ms);
   GatewayCore core(cfg, forwarder, metrics);
+  HealthMonitor health(cfg, core);
   SteadyClock clock;
   WorkerPool pool(cfg, core, metrics);
   DomainScheduler scheduler(cfg, metrics, clock, [&pool](Job job, Fd client, bool head_only) {
@@ -71,6 +73,7 @@ int main(int argc, char** argv) {
     scheduler.start();
     admin.start();
     listener.start();
+    health.start();
   } catch (const std::exception& e) {
     log_error(std::string("startup failed: ") + e.what());
     return 1;
@@ -84,6 +87,7 @@ int main(int argc, char** argv) {
 
   log_info("shutting down");
   listener.stop();
+  health.stop();
   admin.stop();
   scheduler.stop();
   pool.stop();

@@ -73,6 +73,8 @@ struct GatewayConfig {
   int response_timeout_ms = 10000;
   int circuit_threshold = 5;
   int circuit_cooldown_ms = 10000;
+  int health_probe_interval_ms = 2000;
+  size_t health_window_size = 20;
   WeightsCfg weights;
   IngressCfg ingress;
   OutputCfg output;

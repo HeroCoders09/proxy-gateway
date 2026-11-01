@@ -138,7 +138,7 @@ AdminServer::Reply AdminServer::route(const std::string& method, const std::stri
 
   if (path == "/health") {
     double uptime = std::chrono::duration<double>(std::chrono::steady_clock::now() - started_).count();
-    return json_reply({{"status", "ok"}, {"uptime_seconds", uptime}, {"version", "0.1.0"}, {"phase", 3}, {"stub", true}});
+    return json_reply({{"status", "ok"}, {"uptime_seconds", uptime}, {"version", "0.1.0"}, {"phase", 4}, {"stub", true}});
   }
 
   if (path == "/proxies") {
@@ -159,11 +159,14 @@ AdminServer::Reply AdminServer::route(const std::string& method, const std::stri
                      {"failure_count", failures},
                      {"requests_sent", attempts},
                      {"consecutive_failures", live ? state->consecutive_failures : 0},
-                     {"success_rate", attempts ? static_cast<double>(successes) / attempts : 1.0},
+                     {"success_rate", live ? state->rolling_success_rate : (attempts ? static_cast<double>(successes) / attempts : 1.0)},
                      {"active_connections", live ? state->active_connections : 0},
                      {"circuit_state", live ? to_string(state->circuit_state) : "CLOSED"},
-                     {"circuit_open_count", 0},
-                     {"last_probe_unix_ms", 0}});
+                     {"circuit_open_count", live ? state->circuit_open_count : 0},
+                     {"last_probe_unix_ms", live ? state->last_probe_unix_ms : 0},
+                     {"rolling_rtt_ms", live ? state->rolling_rtt_ms : 0.0},
+                     {"probe_success_count", live ? state->probe_success_count : 0},
+                     {"probe_failure_count", live ? state->probe_failure_count : 0}});
     }
     return json_reply({{"stub", true}, {"proxies", arr}});
   }
@@ -182,6 +185,8 @@ AdminServer::Reply AdminServer::route(const std::string& method, const std::stri
                        {"requests_successful", ok},
                        {"requests_failed", failed},
                        {"timeouts", metrics_.get(Counter::Timeouts)},
+                       {"health_probe_successes", metrics_.get(Counter::ProbeSuccesses)},
+                       {"health_probe_failures", metrics_.get(Counter::ProbeFailures)},
                        {"retries", metrics_.get(Counter::Retries)},
                        {"no_route", metrics_.get(Counter::NoRoute)},
                        {"selections", {{"random", metrics_.get(Counter::RandomSelections)},
@@ -209,6 +214,8 @@ AdminServer::Reply AdminServer::route(const std::string& method, const std::stri
       << "# TYPE queue_rejected counter\nqueue_rejected " << metrics_.get(Counter::QueueRejected) << "\n";
     o << "# TYPE retries counter\nretries " << metrics_.get(Counter::Retries) << "\n"
       << "# TYPE no_route counter\nno_route " << metrics_.get(Counter::NoRoute) << "\n"
+      << "# TYPE health_probe_successes_total counter\nhealth_probe_successes_total " << metrics_.get(Counter::ProbeSuccesses) << "\n"
+      << "# TYPE health_probe_failures_total counter\nhealth_probe_failures_total " << metrics_.get(Counter::ProbeFailures) << "\n"
       << "# TYPE routing_selections counter\n";
     for (const auto& [name, counter] : std::vector<std::pair<const char*, Counter>>{
              {"random", Counter::RandomSelections}, {"roundrobin", Counter::RoundRobinSelections},
@@ -227,7 +234,9 @@ AdminServer::Reply AdminServer::route(const std::string& method, const std::stri
       << "latency_ms{quantile=\"0.5\"} " << lp.p50 << "\n"
       << "latency_ms{quantile=\"0.95\"} " << lp.p95 << "\n"
       << "latency_ms{quantile=\"0.99\"} " << lp.p99 << "\n"
-      << "# TYPE proxy_rtt gauge\n# TYPE proxy_success_rate gauge\n# TYPE proxy_failure_count counter\n";
+      << "# TYPE proxy_rtt gauge\n# TYPE proxy_rolling_rtt gauge\n# TYPE proxy_success_rate gauge\n# TYPE proxy_failure_count counter\n"
+      << "# TYPE proxy_consecutive_failures gauge\n# TYPE proxy_circuit_open_count counter\n# TYPE proxy_last_probe_unix_ms gauge\n"
+      << "# TYPE proxy_probe_successes_total counter\n# TYPE proxy_probe_failures_total counter\n";
     const std::vector<ProxyState> states = proxy_snapshot_ ? proxy_snapshot_() : std::vector<ProxyState>{};
     for (const auto& p : cfg_.proxies) {
       auto state = std::find_if(states.begin(), states.end(), [&](const auto& s) { return s.id == p.id; });
@@ -241,8 +250,14 @@ AdminServer::Reply AdminServer::route(const std::string& method, const std::stri
         << "proxy_active_connections{proxy=\"" << p.id << "\"} " << (live ? state->active_connections : 0) << "\n"
         << "proxy_rtt{proxy=\"" << p.id << "\"} " << (live ? state->rtt_ms : 0.0) << "\n"
         << "proxy_success_rate{proxy=\"" << p.id << "\"} "
-        << (attempts ? static_cast<double>(successes) / attempts : 1.0) << "\n"
-        << "proxy_failure_count{proxy=\"" << p.id << "\"} " << failures << "\n";
+        << (live ? state->rolling_success_rate : (attempts ? static_cast<double>(successes) / attempts : 1.0)) << "\n"
+        << "proxy_failure_count{proxy=\"" << p.id << "\"} " << failures << "\n"
+        << "proxy_rolling_rtt{proxy=\"" << p.id << "\"} " << (live ? state->rolling_rtt_ms : 0.0) << "\n"
+        << "proxy_consecutive_failures{proxy=\"" << p.id << "\"} " << (live ? state->consecutive_failures : 0) << "\n"
+        << "proxy_circuit_open_count{proxy=\"" << p.id << "\"} " << (live ? state->circuit_open_count : 0) << "\n"
+        << "proxy_last_probe_unix_ms{proxy=\"" << p.id << "\"} " << (live ? state->last_probe_unix_ms : 0) << "\n"
+        << "proxy_probe_successes_total{proxy=\"" << p.id << "\"} " << (live ? state->probe_success_count : 0) << "\n"
+        << "proxy_probe_failures_total{proxy=\"" << p.id << "\"} " << (live ? state->probe_failure_count : 0) << "\n";
     }
     r.status = 200;
     r.content_type = "text/plain; version=0.0.4";

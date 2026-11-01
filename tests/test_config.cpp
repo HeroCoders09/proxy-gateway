@@ -27,6 +27,8 @@ TEST_CASE("minimal config gets defaults") {
   REQUIRE(c.response_timeout_ms == 10000);
   REQUIRE(c.circuit_threshold == 5);
   REQUIRE(c.circuit_cooldown_ms == 10000);
+  REQUIRE(c.health_probe_interval_ms == 2000);
+  REQUIRE(c.health_window_size == 20);
   REQUIRE(c.proxies.size() == 1);
   REQUIRE(c.proxies[0].id == 0);
 }
@@ -49,7 +51,7 @@ TEST_CASE("full config round trip of values") {
     "queue_limit":77,
     "workers":{"min":2,"max":9,"alpha":2,"beta":0.7},
     "timeouts":{"connect_ms":111,"response_ms":222},
-    "circuit":{"threshold":3,"cooldown_ms":444},
+    "circuit":{"threshold":3,"cooldown_ms":444,"probe_interval_ms":1234,"window_size":7},
     "weights":{"latency":1,"load":2,"failure":3},
     "ingress":{"threads":3},
     "output":{"format":"csv","path":"out.csv"}})");
@@ -61,6 +63,8 @@ TEST_CASE("full config round trip of values") {
   REQUIRE(c.workers.beta == Catch::Approx(0.7));
   REQUIRE(c.connect_timeout_ms == 111);
   REQUIRE(c.circuit_threshold == 3);
+  REQUIRE(c.health_probe_interval_ms == 1234);
+  REQUIRE(c.health_window_size == 7);
   REQUIRE(c.weights.failure == 3);
   REQUIRE(c.ingress.threads == 3);
   // Domain keys are lower-cased; unspecified burst inherits the default.

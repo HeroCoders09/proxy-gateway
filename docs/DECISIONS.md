@@ -233,3 +233,53 @@ Append-only. Number decisions D-001, D-002 and so on. Never edit an old entry; s
 - Alternatives considered: Disable Proxy 3's fault only, or accept Phase 2 verification as failing after Phase 3. A one-proxy temporary config isolates the exact Phase 2 mechanisms with the fewest dependencies.
 - Consequences: This changes only the test script's generated `/tmp` config; production configuration and routing are unaffected.
 - Status: Active
+
+## D-024: Phase 4 rolling health, active probes and circuit behavior
+- Date: 2026-11-02
+- Phase: 4
+- Made by: Phase 4 owner
+- Decision: Keep a configurable rolling window of 20 combined real-attempt and probe outcomes per proxy. Derive `healthy=false` only after at least four samples when rolling success falls below 50%; otherwise it is healthy. Probe each configured proxy every 2 seconds through the existing `Forwarder` using `GET http://test.example/health`; probe success means a transport success and 2xx response. The circuit opens after the configured consecutive-failure threshold (default 5), stays OPEN for the configured cooldown (default 10 seconds), then allows exactly one monitor probe in HALF_OPEN. The normal router excludes both OPEN and HALF_OPEN. A successful half-open probe closes and resets the breaker; failure reopens it and restarts cooldown. Probe outcomes join per-proxy rolling/lifetime outcomes but update separate global probe counters, not request totals.
+- Why: Rolling health prevents one bad sample from immediately disabling a proxy. Four all-failure samples detect the test-bed failure well within the 10-second target at the two-second probe cadence, while the breaker keeps the established 5-failure/10-second policy. Routing traffic must never accidentally consume the half-open test gate.
+- Alternatives considered: Marking unhealthy on one failed sample (flaps on transient loss); allowing ordinary requests in HALF_OPEN (cannot guarantee the single-test gate); probing with a separate HTTP client path (would fail to measure the configured proxy forwarding path).
+- Consequences: `circuit.window_size` and `circuit.probe_interval_ms` extend the existing config object. Probe URLs rely on the test-bed `test.example` alias and `/health` endpoint. Rolling and lifetime per-proxy counts include probes; global request counters do not. SRS success definition remains unresolved per I-013; D-010 stays unchanged.
+- Status: Active
+
+## D-025: Keep health probes out of request attempt counters
+- Date: 2026-11-02
+- Phase: 4
+- Made by: Phase 4 owner
+- Decision: Probe outcomes contribute to the combined rolling health/RTT window and the global probe counters, but remain separate from Phase 3's per-proxy request `success_count`, `failure_count` and `requests_sent`. Add per-proxy probe success/failure counters to snapshots and the admin API.
+- Why: Preserve the established meaning of Phase 3 request counters and keep request/retry benchmarks stable while still including probes in the health estimate.
+- Alternatives considered: Mix probes into the cumulative request counters (would count non-client work as forwarded requests and change Phase 3 verifier results).
+- Consequences: `/proxies` and `/metrics` expose distinct traffic and probe counts. `success_rate` remains the rolling combined health rate; request traffic success totals remain available separately.
+- Status: Active
+
+## D-026: Bound and isolate per-proxy health probes
+- Date: 2026-11-02
+- Phase: 4
+- Made by: Phase 4 owner
+- Decision: Run one fixed monitor thread per configured proxy, with a maximum 1-second connect and response timeout for probes. The normal request path retains its configured deadlines.
+- Why: A slow or unresponsive proxy must not delay another proxy's probe cadence; bounded probes allow five consecutive failures to open the circuit within the 10-second detection target at a 2-second cadence.
+- Alternatives considered: Probe all proxies sequentially on one thread (one silent proxy could delay every later proxy); use the full request timeout for probes (could exceed the detection target).
+- Consequences: Monitor thread count is bounded by configured proxy count; only background probes use the shorter deadline. Forwarding stays outside state locks.
+- Status: Active
+
+## D-027: Derive the healthy flag from the most recent four outcomes
+- Date: 2026-11-02
+- Phase: 4
+- Made by: Phase 4 owner
+- Decision: Keep the configurable 20-sample rolling window for reported success/RTT statistics, but derive the routing `healthy` flag from the most recent four combined request/probe outcomes. A proxy becomes unhealthy when at least four are available and fewer than half succeeded; it recovers when the latest four reach at least a 50% success rate. If `circuit.window_size` is below four, use the full configured window as the minimum and health window.
+- Why: The longer window gives stable visible trend metrics, while a four-sample tail detects a dead proxy within the 10-second target and allows a recovered proxy to become eligible soon after its successful HALF_OPEN probe. A single good probe cannot immediately erase a run of failures.
+- Alternatives considered: Use the entire 20-sample window for health eligibility (recovery can remain blocked for many probe intervals after the circuit closes); reset all rolling history on recovery (loses meaningful health history).
+- Consequences: `healthy` and the reported `success_rate` use different scopes: `healthy` uses the latest four (or the full smaller configured window); `success_rate` remains the full configured rolling window.
+- Status: Active; supersedes D-024's health-flag derivation only
+
+## D-028: Keep the Phase 2 AIMD verifier isolated from Phase 4 health state
+- Date: 2026-11-02
+- Phase: 4 (minimal verifier update for the Phase 2 check)
+- Made by: Phase 4 owner
+- Decision: Keep the verifier's one-proxy temporary config and raise its circuit threshold to 100 so its controlled 20-request AIMD fault window does not open the circuit. After fault removal, wait until the health probe has restored eligibility before measuring two healthy AIMD windows.
+- Why: Phase 4 correctly makes the only proxy ineligible after the test's injected 502 burst, which prevents the old Phase 2 verifier from measuring recovery of AIMD independently. The check should measure scheduler/AIMD behavior, not circuit cooldown.
+- Alternatives considered: Change production health/circuit behavior; accept no-route failures as AIMD recovery; disable health in production configuration. All would weaken the Phase 4 acceptance behavior or the verifier's stated purpose.
+- Consequences: The Phase 2 verification script still checks only rate isolation and AIMD, with health recovery allowed to complete before the AIMD success window.
+- Status: Active

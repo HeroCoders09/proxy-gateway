@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <functional>
+#include <chrono>
 
 #include "common/http_util.hpp"
 #include "common/log.hpp"
@@ -30,8 +31,10 @@ Counter selection_counter(const std::string& policy) {
 
 }  // namespace
 
-GatewayCore::GatewayCore(const GatewayConfig& cfg, Forwarder& forwarder, MetricsSink& metrics)
-    : forwarder_(forwarder), metrics_(metrics), policy_(cfg.policy),
+GatewayCore::GatewayCore(const GatewayConfig& cfg, Forwarder& forwarder, MetricsSink& metrics, const Clock* clock)
+    : forwarder_(forwarder), metrics_(metrics), clock_(clock ? *clock : default_clock_),
+      circuit_threshold_(cfg.circuit_threshold), circuit_cooldown_ms_(cfg.circuit_cooldown_ms),
+      health_window_size_(cfg.health_window_size), policy_(cfg.policy),
       router_(std::make_unique<PolicyRouter>(cfg.policy, cfg.weights)) {
   for (const auto& p : cfg.proxies) {
     ProxyState state;
@@ -39,6 +42,9 @@ GatewayCore::GatewayCore(const GatewayConfig& cfg, Forwarder& forwarder, Metrics
     state.host = p.host;
     state.port = p.port;
     proxies_.push_back(std::move(state));
+    rolling_.emplace(p.id, RollingStats(health_window_size_));
+    breakers_.emplace(p.id, std::make_unique<CircuitBreaker>(circuit_threshold_,
+        std::chrono::milliseconds(circuit_cooldown_ms_), clock_));
   }
 }
 
@@ -59,6 +65,75 @@ void GatewayCore::report(ProxyId proxy_id, bool success, double rtt_ms) {
     ++it->consecutive_failures;
   }
   if (rtt_ms > 0.0) it->rtt_ms = it->rtt_ms > 0.0 ? (0.8 * it->rtt_ms + 0.2 * rtt_ms) : rtt_ms;
+  auto& window = rolling_.at(proxy_id);
+  window.add(success, rtt_ms);
+  it->rolling_success_rate = window.success_rate();
+  it->rolling_rtt_ms = window.mean_rtt_ms();
+  const size_t health_samples = std::min<size_t>(4, health_window_size_);
+  if (window.size() >= health_samples && window.recent_success_rate(health_samples) < 0.5) it->healthy = false;
+  else it->healthy = true;
+  auto& breaker = *breakers_.at(proxy_id);
+  const auto prior_open_count = breaker.open_count();
+  breaker.record(success);
+  it->consecutive_failures = breaker.consecutive_failures();
+  it->circuit_state = breaker.state();
+  it->circuit_open_count = breaker.open_count();
+  if (it->circuit_open_count > prior_open_count) it->circuit_opened_at = clock_.now();
+}
+
+bool GatewayCore::probe_proxy(ProxyId proxy_id, Forwarder* probe_forwarder) {
+  ProxyState selected;
+  {
+    std::lock_guard<std::mutex> lock(proxies_mu_);
+    auto it = std::find_if(proxies_.begin(), proxies_.end(), [proxy_id](const auto& p) { return p.id == proxy_id; });
+    if (it == proxies_.end()) return false;
+    auto& breaker = *breakers_.at(proxy_id);
+    if (!breaker.begin_probe()) return false;
+    it->circuit_state = breaker.state();
+    it->half_open_probe_in_flight = breaker.probe_in_flight();
+    selected = *it;
+  }
+
+  Job job;
+  job.method = "GET";
+  job.url = "http://test.example/health";
+  job.domain = "test.example";
+  job.target_host = "test.example";
+  job.target_port = 80;
+  job.target_path = "/health";
+  ForwardResult result;
+  try {
+    result = (probe_forwarder ? *probe_forwarder : forwarder_).forward(job, selected);
+  } catch (...) {
+    result.error = ErrorKind::IoError;
+  }
+  const bool success = result.ok() && result.status >= 200 && result.status < 300;
+  {
+    std::lock_guard<std::mutex> lock(proxies_mu_);
+    auto it = std::find_if(proxies_.begin(), proxies_.end(), [proxy_id](const auto& p) { return p.id == proxy_id; });
+    if (it == proxies_.end()) return false;
+    auto& breaker = *breakers_.at(proxy_id);
+    const auto prior_open_count = breaker.open_count();
+    breaker.finish_probe(success);
+    it->half_open_probe_in_flight = breaker.probe_in_flight();
+    it->circuit_state = breaker.state();
+    it->consecutive_failures = breaker.consecutive_failures();
+    it->circuit_open_count = breaker.open_count();
+    if (it->circuit_open_count > prior_open_count) it->circuit_opened_at = clock_.now();
+    it->last_probe_time = clock_.now();
+    it->last_probe_unix_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    ++(success ? it->probe_success_count : it->probe_failure_count);
+    if (result.latency_ms > 0.0) it->rtt_ms = it->rtt_ms > 0.0 ? (0.8 * it->rtt_ms + 0.2 * result.latency_ms) : result.latency_ms;
+    auto& window = rolling_.at(proxy_id);
+    window.add(success, result.latency_ms);
+    it->rolling_success_rate = window.success_rate();
+    it->rolling_rtt_ms = window.mean_rtt_ms();
+    const size_t health_samples = std::min<size_t>(4, health_window_size_);
+    it->healthy = !(window.size() >= health_samples && window.recent_success_rate(health_samples) < 0.5);
+    metrics_.inc(success ? Counter::ProbeSuccesses : Counter::ProbeFailures);
+  }
+  return success;
 }
 
 HttpResponse GatewayCore::handle(Job& job) {
@@ -83,7 +158,7 @@ HttpResponse GatewayCore::handle(Job& job) {
       if (id) {
         std::lock_guard<std::mutex> state_lock(proxies_mu_);
         auto it = std::find_if(proxies_.begin(), proxies_.end(), [id](const auto& p) { return p.id == *id; });
-        if (it != proxies_.end()) {
+        if (it != proxies_.end() && it->healthy && it->circuit_state == CircuitState::Closed) {
           ++it->active_connections;
           selected = *it;
           routed = true;

@@ -114,6 +114,8 @@ void validate_config(const GatewayConfig& c) {
   if (c.response_timeout_ms <= 0) fail("timeouts.response_ms must be > 0");
   if (c.circuit_threshold < 1) fail("circuit.threshold must be >= 1");
   if (c.circuit_cooldown_ms <= 0) fail("circuit.cooldown_ms must be > 0");
+  if (c.health_probe_interval_ms <= 0) fail("circuit.probe_interval_ms must be > 0");
+  if (c.health_window_size < 1 || c.health_window_size > 1000000) fail("circuit.window_size must be between 1 and 1000000");
   if (c.weights.latency < 0 || c.weights.load < 0 || c.weights.failure < 0) {
     fail("weights must be >= 0");
   }
@@ -205,9 +207,11 @@ GatewayConfig parse_config_text(const std::string& text) {
     c.response_timeout_ms = static_cast<int>(read_int(*o, "response_ms", "timeouts", c.response_timeout_ms, 1, 3600000));
   }
   if (const json* o = read_object(j, "circuit")) {
-    check_keys(*o, "circuit", {"threshold", "cooldown_ms"});
+    check_keys(*o, "circuit", {"threshold", "cooldown_ms", "probe_interval_ms", "window_size"});
     c.circuit_threshold = static_cast<int>(read_int(*o, "threshold", "circuit", c.circuit_threshold, 1, 1000000));
     c.circuit_cooldown_ms = static_cast<int>(read_int(*o, "cooldown_ms", "circuit", c.circuit_cooldown_ms, 1, 3600000));
+    c.health_probe_interval_ms = static_cast<int>(read_int(*o, "probe_interval_ms", "circuit", c.health_probe_interval_ms, 1, 3600000));
+    c.health_window_size = static_cast<size_t>(read_int(*o, "window_size", "circuit", c.health_window_size, 1, 1000000));
   }
   if (const json* o = read_object(j, "weights")) {
     check_keys(*o, "weights", {"latency", "load", "failure"});

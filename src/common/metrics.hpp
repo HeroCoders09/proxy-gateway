@@ -24,6 +24,8 @@ enum class Counter : size_t {
   LeastConnSelections,
   LatencySelections,
   WeightedSelections,
+  ProbeSuccesses,
+  ProbeFailures,
   kCount
 };
 
