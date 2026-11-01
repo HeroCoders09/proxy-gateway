@@ -183,3 +183,13 @@ Append-only. Number decisions D-001, D-002 and so on. Never edit an old entry; s
 - Alternatives considered: Keeping 8080 (clashes with many dev tools); making the proxy ports configurable too (they are baked into the gateway configs; if 3128 to 3130 clash, change them in the compose file and `config/gateway.local.json` together and log it).
 - Consequences: Docs and scripts now say 18080 for Docker mode. Local mode still uses 8081.
 - Status: Active
+
+## D-019: Phase 2 queue, release and AIMD design
+- Date: 2026-11-01
+- Phase: 2
+- Made by: Phase 2 owner
+- Decision: Ingress transfers a parsed `Job` and its RAII client descriptor to a per-domain FIFO scheduler. New buckets start full (burst B); a scheduler thread wakes at most every 5 ms, refills with the monotonic clock, and releases oldest eligible jobs independently per domain. A fixed `workers.max` thread pool processes released work, gated by AIMD's concurrency limit C. AIMD evaluates one-second windows: an error/timeout rate of 10 percent or more applies `floor(beta*C)` (never below min); otherwise it adds `ceil(alpha)` (never above max).
+- Why: Full buckets preserve burst behaviour, one short scheduler tick avoids busy-waiting, and a fixed upper-bound pool proves no request creates a thread. The one-second / 10 percent window reacts within UC6's five-second requirement.
+- Alternatives considered: Per-domain scheduler threads; a thread per request; measuring every completion.
+- Consequences: A domain queue full condition returns 503 and increments `queue_rejected`. Client descriptors deliberately move from ingress to scheduler, then workers. Phase 3 replaces only the fixed-proxy portion of `GatewayCore`.
+- Status: Active

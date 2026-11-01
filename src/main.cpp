@@ -13,6 +13,8 @@
 #include "gateway/gateway_core.hpp"
 #include "ingress/listener.hpp"
 #include "net/simple_forwarder.hpp"
+#include "scheduler/domain_scheduler.hpp"
+#include "workers/worker_pool.hpp"
 
 namespace {
 std::atomic<bool> g_stop{false};
@@ -51,10 +53,22 @@ int main(int argc, char** argv) {
   Metrics metrics;
   SimpleForwarder forwarder(cfg.connect_timeout_ms, cfg.response_timeout_ms);
   GatewayCore core(cfg, forwarder, metrics);
-  AdminServer admin(cfg, metrics);
-  Listener listener(cfg, metrics, [&core](Job& job) { return core.handle(job); });
+  SteadyClock clock;
+  WorkerPool pool(cfg, core, metrics);
+  DomainScheduler scheduler(cfg, metrics, clock, [&pool](Job job, Fd client, bool head_only) {
+    pool.submit(std::move(job), std::move(client), head_only);
+  });
+  AdminServer admin(cfg, metrics, [&scheduler, &pool] {
+    return Phase2Stats{scheduler.queue_lengths(), pool.thread_count(), pool.aimd_limit(), pool.active_jobs()};
+  });
+  Listener listener(cfg, metrics, [&scheduler](Job job, Fd client, bool head_only) {
+    if (!scheduler.enqueue(std::move(job), client, head_only))
+      write_response(client.get(), make_error_response(503, "domain queue full"), false, 5000);
+  });
 
   try {
+    pool.start();
+    scheduler.start();
     admin.start();
     listener.start();
   } catch (const std::exception& e) {
@@ -72,5 +86,7 @@ int main(int argc, char** argv) {
   log_info("shutting down");
   listener.stop();
   admin.stop();
+  scheduler.stop();
+  pool.stop();
   return 0;
 }

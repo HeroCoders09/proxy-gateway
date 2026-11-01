@@ -12,7 +12,7 @@ Code locations: structs in `src/common/types.hpp`, interfaces in `src/common/int
 | `ProxyState` | `id` (`ProxyId` = int, index in config `proxies`), `host`, `port`, `healthy` (bool, default true), `rtt_ms` (double), `success_count`, `failure_count` (u64), `consecutive_failures` (u32), `active_connections` (int), `last_probe_time`, `circuit_state` (`CircuitState`: `Closed`, `Open`, `HalfOpen`; JSON strings `CLOSED`, `OPEN`, `HALF_OPEN`) | Phase 3 builds the thread-safe table; Phase 4 drives `healthy` and `circuit_state` |
 | `DomainQueue` | `jobs` (deque of `Job`), `queue_limit` (default 10000), `tokens`, `refill_rate` (tokens per second), `capacity` (burst B), `last_refill` | Phase 2 |
 | `Connection` | `fd` (`Fd`), `proxy_id`, `state` (`ConnState`: `Idle`, `Connecting`, `Active`, `Closed`), `last_used`, `requests_served`, `keep_alive`, `in_buf`, `out_buf` | Phase 5 |
-| `Metrics` (implements `MetricsSink`) | counters `RequestsTotal`, `RequestsSuccessful`, `RequestsFailed`, `Timeouts`, `BadRequests`; bounded latency ring (4096 samples) giving p50, p95, p99 | Each phase adds its own counters and gauges here (handbook rule 7) |
+| `Metrics` (implements `MetricsSink`) | counters `RequestsTotal`, `RequestsSuccessful`, `RequestsFailed`, `Timeouts`, `BadRequests`, `QueueRejected`; bounded latency ring (4096 samples) giving p50, p95, p99 | `QueueRejected` is a Phase 2 full-domain-queue 503; each phase appends counters only |
 | `GatewayConfig` | see "Config file keys" | Loaded and validated by `load_config_file` |
 | `HttpResponse` (`src/ingress/http_response.hpp`) | `status` (int), `headers`, `body` | Used for every client reply; `write_response(fd, resp, head_only, timeout_ms)` sends it |
 | `ForwardResult` | `error` (`ErrorKind`), `error_detail` (short string, never a body or credential), `status`, `headers`, `body`, `latency_ms` (connect + request + response), `proxy_id`; `ok()` is true when `error == None` | |
@@ -30,7 +30,9 @@ Code locations: structs in `src/common/types.hpp`, interfaces in `src/common/int
 | `MetricsSink` | `void inc(Counter c, uint64_t n = 1)`, `void observe_latency_ms(double ms)`. Thread-safe; the only way modules write measurements. Phase 2 to 5 add counters to the `Counter` enum (append before `kCount`; never reorder) |
 | `Clock` | `TimePoint now() const` on `std::chrono::steady_clock`. `SteadyClock` for production, `FakeClock` (`advance(d)`) for tests |
 | `Fd` | RAII file-descriptor owner: `get()`, `valid()`, `release()`, `reset(fd)`, move-only. No raw `close()` anywhere else |
-| `Listener` | `Listener(cfg, MetricsSink&, Handler)` where `Handler = std::function<HttpResponse(Job&)>`; `start()`, `stop()`, `port()`. Phase 1 handler runs the whole forward synchronously (see D-005) |
+| `Listener` | Legacy `Handler = std::function<HttpResponse(Job&)>` remains for tests. Phase 2 production uses `AsyncHandler = std::function<void(Job, Fd, bool head_only)>`, transferring the descriptor to the scheduler; `start()`, `stop()`, `port()` |
+| `DomainScheduler` | `enqueue(Job, Fd&, head_only) -> bool`, `try_acquire(domain) -> bool`, `queue_lengths()`. Owns one FIFO/token bucket per domain; false means the caller sends 503. |
+| `WorkerPool` | `submit(Job, Fd, head_only)`, fixed `workers.max` threads, `active_jobs()`, `aimd_limit()`. It writes replies after forwarding; no worker is created per request. |
 
 Request path in Phase 1: `Listener` parses to `Job` -> `GatewayCore::handle(Job&)` -> `SimpleForwarder::forward(job, proxy0)` -> `HttpResponse` -> client.
 
@@ -170,6 +172,7 @@ Other paths return 404 `{"error":"not found"}`.
 
 ## Change history
 
+- 2026-11-01 D-019: Phase 2 scheduler, async listener ownership handoff, bounded worker pool, AIMD policy and `queue_rejected` counter added.
 - 2026-11-01 D-015: Admin API shapes (`/health`, `/proxies`, `/api/stats`, `/metrics`) defined with the Phase 1 stub.
 - 2026-11-01 D-009: Config keys and CLI defined.
 - 2026-11-01 D-010: Success/failure counter definitions.

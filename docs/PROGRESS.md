@@ -3,18 +3,18 @@
 Newest entries at the bottom of the Log. Times are UTC.
 
 ## Current state (keep this block up to date)
-- Current phase: 1 done. Next: Phase 2
-- Current owner: Phase 1 owner (Gourav, with a Claude agent)
-- Branch: merged to `main`, tagged `phase-1-done` (D-003)
-- Last green build and test run: 2026-11-01 16:06 (clean clone: build with no warnings, 71 test cases / 1,250 assertions pass, sanitizer build passes, acceptance script passes)
-- Command that shows current state: `cmake -S . -B build && cmake --build build -j && ./build/pg_tests && tests/e2e/run_phase1_acceptance.sh --local`
+- Current phase: 2 done. Next: Phase 3
+- Current owner: Phase 2 owner
+- Branch: `phase-2-scheduling`
+- Last green build and test run: 2026-11-01 22:58 (74 test cases / 1,267 assertions pass normally and under ASan/UBSan; local smoke passes)
+- Command that shows current state: `cmake -S . -B build && cmake --build build -j && ./build/pg_tests && scripts/smoke.sh --local`
 
 ### Phase status tracker (mirror of handbook 10.3)
 
 | Phase | Name | Owner | Status | Handoff file |
 | --- | --- | --- | --- | --- |
 | 1 | Foundation and skeleton | Gourav + Claude agent | Done (tag `phase-1-done`) | `docs/HANDOFF_PHASE_1.md` |
-| 2 | Scheduling and concurrency |  | Not started | `docs/HANDOFF_PHASE_2.md` |
+| 2 | Scheduling and concurrency | Phase 2 owner | Done | `docs/HANDOFF_PHASE_2.md` |
 | 3 | Routing and retries |  | Not started | `docs/HANDOFF_PHASE_3.md` |
 | 4 | Health and fault tolerance |  | Not started | `docs/HANDOFF_PHASE_4.md` |
 | 5 | Fast network I/O |  | Not started | `docs/HANDOFF_PHASE_5.md` |
@@ -39,10 +39,12 @@ Newest entries at the bottom of the Log. Times are UTC.
 - 2026-11-01 16:20 Gourav (owner's laptop, GCC 11.4, Ubuntu 22.04): `cmake ... && ./build/pg_tests` built with no warnings and passed 71 test cases / 1,250 assertions.
 - 2026-11-01 16:22 Gourav + Claude agent: First Docker run failed on a host port clash (8080 in use). Target host port moved to 18080 and made configurable (D-018); `verify_testbed.sh` now fails fast when the test bed is down.
 - 2026-11-01 16:30 Gourav: Docker run passed: all containers Healthy about 4 s, `scripts/smoke.sh` SMOKE PASS in Docker mode, `testbed/verify_testbed.sh` all PASS against the containers (proxy2 +100.9 ms, proxy3 17.5 percent failures, proxy1 0 percent). I-002 closed. Merged to `main`, tagged `phase-1-done`.
+- 2026-11-01 22:58 Phase 2 owner: Baseline build, 71 tests and local smoke passed after a user-authorized stop of an unrelated process holding :8000. Added per-domain token buckets/FIFO scheduler, async client-FD ownership transfer, fixed bounded worker pool and AIMD (D-019). Normal and ASan/UBSan tests pass: 74 cases / 1,267 assertions; local smoke passes.
+- 2026-11-01 23:02 Phase 2 owner: Added live Phase 2 admin metrics and `bench/phase2_verify.py`. Local load/fault verification passed: site A max 50/s, site B 100 requests; AIMD 8 -> 4 -> 6 after injected failures and recovery.
 
 ## Stop entry (write this before stopping)
-- Done: All of Phase 1 (handbook 4.2 tasks 1 to 9, deliverables 4.3, every item of the done checklist 4.5). Evidence in `docs/HANDOFF_PHASE_1.md`.
-- Half done: Nothing in Phase 1. The optional gateway container (`testbed/gateway/Dockerfile`, compose profile `gateway`) has never been built (I-010).
-- Next steps, in order: 1. Phase 2 owner reads `docs/HANDOFF_PHASE_1.md`, builds, runs tests and `scripts/smoke.sh`. 2. Create branch `phase-2-scheduling`. 3. Replace the synchronous ingress handler with per-domain queues, token bucket, bounded worker pool and AIMD (handbook section 5).
-- Known problems: see `docs/ISSUES.md` (open: I-001, I-003 to I-012 except I-002; I-010 partly fixed).
-- How to resume: `git checkout main && cmake -S . -B build && cmake --build build -j && ./build/pg_tests && scripts/smoke.sh`
+- Done: Phase 2 checklist complete; handoff is `docs/HANDOFF_PHASE_2.md`.
+- Half done: Nothing in Phase 2.
+- Next steps: Phase 3 owner reads the handoff and implements routing/retries only.
+- Known problems: See `docs/ISSUES.md` for later-phase items.
+- How to resume: `cmake -S . -B build && cmake --build build -j && ./build/pg_tests && scripts/smoke.sh --local && git status --short`

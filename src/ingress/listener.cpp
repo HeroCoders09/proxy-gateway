@@ -44,6 +44,9 @@ void lingering_close(int fd) {
 Listener::Listener(const GatewayConfig& cfg, MetricsSink& metrics, Handler handler)
     : cfg_(cfg), metrics_(metrics), handler_(std::move(handler)) {}
 
+Listener::Listener(const GatewayConfig& cfg, MetricsSink& metrics, AsyncHandler handler)
+    : cfg_(cfg), metrics_(metrics), async_handler_(std::move(handler)) {}
+
 Listener::~Listener() { stop(); }
 
 void Listener::start() {
@@ -220,6 +223,11 @@ void Listener::handle_connection(Fd client) {
   job.target_path = std::move(pr.request.path);
 
   const bool head_only = (job.method == "HEAD");
+  if (async_handler_) {
+    // From this point the scheduler/worker owns the descriptor and writes the reply.
+    async_handler_(std::move(job), std::move(client), head_only);
+    return;
+  }
   HttpResponse resp;
   try {
     resp = handler_(job);

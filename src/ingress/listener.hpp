@@ -25,8 +25,11 @@ class Listener {
   // The handler is given the parsed Job and returns the response to send to the client.
   // It may throw; the listener answers 502 and keeps running.
   using Handler = std::function<HttpResponse(Job&)>;
+  // Phase 2 ownership handoff: the callback owns client and writes the reply later.
+  using AsyncHandler = std::function<void(Job, Fd, bool)>;
 
   Listener(const GatewayConfig& cfg, MetricsSink& metrics, Handler handler);
+  Listener(const GatewayConfig& cfg, MetricsSink& metrics, AsyncHandler handler);
   ~Listener();
   Listener(const Listener&) = delete;
   Listener& operator=(const Listener&) = delete;
@@ -46,6 +49,7 @@ class Listener {
   const GatewayConfig cfg_;
   MetricsSink& metrics_;
   Handler handler_;
+  AsyncHandler async_handler_;
 
   Fd listen_fd_;
   uint16_t bound_port_ = 0;

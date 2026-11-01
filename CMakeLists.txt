@@ -33,6 +33,9 @@ add_library(pg_core STATIC
   src/net/simple_forwarder.cpp
   src/admin/admin_server.cpp
   src/gateway/gateway_core.cpp
+  src/scheduler/domain_scheduler.cpp
+  src/workers/aimd.cpp
+  src/workers/worker_pool.cpp
 )
 target_include_directories(pg_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/third_party)
 target_link_libraries(pg_core PUBLIC Threads::Threads)
