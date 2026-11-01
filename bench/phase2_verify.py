@@ -10,6 +10,9 @@ cfg["listen"]["port"] = 18000; cfg["admin"]["port"] = 19000
 cfg["proxies"] = cfg["proxies"][:1]
 cfg["rate_limits"]["site-a.example"] = {"rate": 50, "burst": 1}
 cfg["workers"] = {"min": 4, "max": 8, "alpha": 1, "beta": 0.5}
+# Isolate AIMD from Phase 4's breaker during this controlled fault window; wait for healthy probes
+# after removing the fault before measuring AIMD's additive recovery.
+cfg["circuit"]["threshold"] = 100
 json.dump(cfg, open(cfg_path, "w"))
 bed = subprocess.Popen([os.path.join(ROOT,"testbed/run_local.sh"), "start"], stdout=subprocess.DEVNULL)
 bed.wait()
@@ -38,6 +41,15 @@ try:
     for i in range(20): request("test.example",i)
     time.sleep(1.1); after=admin()["aimd_limit"]
     fault(0)
+    deadline=time.monotonic()+8
+    while time.monotonic()<deadline:
+        c=http.client.HTTPConnection("127.0.0.1",19000,timeout=3); c.request("GET","/proxies")
+        proxies=json.loads(c.getresponse().read())["proxies"]; c.close()
+        if proxies[0]["healthy"]:
+            break
+        time.sleep(.1)
+    else:
+        raise AssertionError("proxy health did not recover after removing the injected fault")
     for _ in range(2): request("test.example"); time.sleep(1.05)
     recovered=admin()["aimd_limit"]
     assert after < before and recovered > after, (before,after,recovered)

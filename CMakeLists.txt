@@ -26,6 +26,8 @@ add_library(pg_core STATIC
   src/common/config.cpp
   src/common/http_util.cpp
   src/common/metrics.cpp
+  src/health/health_monitor.cpp
+  src/health/health_state.cpp
   src/ingress/http_parser.cpp
   src/ingress/http_response.cpp
   src/ingress/listener.cpp

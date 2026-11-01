@@ -28,9 +28,9 @@ Bugs, gaps and deferred work that are not fixed yet, with the phase that should 
 
 ## I-005: Routing policy is read but not applied
 - Found in phase: 1   Should be fixed in phase: 3
-- Description: Previously `policy` and `--policy` were validated but ignored by `GatewayCore`. Phase 3 now applies all five policies and the `weights` values. `workers`, rate limits and queue limits are used by Phase 2; circuit/health fields remain defaults until Phase 4.
-- Impact: No longer blocks routing. Phase 4 must drive `healthy` and circuit state to make those eligibility inputs dynamic.
-- Status: Partly fixed 2026-11-01 in Phase 3; health/circuit integration remains Phase 4 work.
+- Description: Previously `policy` and `--policy` were validated but ignored by `GatewayCore`. Phase 3 applies all five policies and the `weights` values. Phase 4 now updates health and circuit state from real attempts and active probes, with the router excluding unhealthy, OPEN and HALF_OPEN proxies.
+- Impact: Resolved for routing, health and circuit eligibility.
+- Status: Fixed 2026-11-02 in Phase 4.
 
 ## I-006: Admin server is a single-threaded stub with dummy data
 - Found in phase: 1   Should be fixed in phase: 6

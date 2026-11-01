@@ -33,13 +33,35 @@ TEST_CASE("admin /proxies shape has one entry per configured proxy") {
   REQUIRE(j["proxies"].size() == 3);
   const json& p = j["proxies"][2];
   for (const char* key : {"id", "host", "port", "healthy", "rtt_ms", "success_count", "failure_count", "consecutive_failures",
-                          "success_rate", "active_connections", "circuit_state", "circuit_open_count", "last_probe_unix_ms"}) {
+                          "success_rate", "active_connections", "circuit_state", "circuit_open_count", "last_probe_unix_ms",
+                          "rolling_rtt_ms", "probe_success_count", "probe_failure_count"}) {
     INFO(key);
     REQUIRE(p.contains(key));
   }
   REQUIRE(p["id"] == 2);
   REQUIRE(p["host"] == "proxy3");
   REQUIRE(p["circuit_state"] == "CLOSED");
+}
+
+TEST_CASE("admin /proxies returns live health and circuit snapshots") {
+  Metrics m;
+  GatewayConfig cfg = cfg3();
+  ProxyState p;
+  p.id = 0;
+  p.healthy = false;
+  p.circuit_state = CircuitState::Open;
+  p.rolling_success_rate = 0.25;
+  p.circuit_open_count = 2;
+  p.last_probe_unix_ms = 1234;
+  p.probe_failure_count = 4;
+  AdminServer a(cfg, m, {}, [p] { return std::vector<ProxyState>{p}; });
+  const auto j = json::parse(a.route("GET", "/proxies").body);
+  REQUIRE(j["proxies"][0]["healthy"] == false);
+  REQUIRE(j["proxies"][0]["circuit_state"] == "OPEN");
+  REQUIRE(j["proxies"][0]["success_rate"] == Catch::Approx(0.25));
+  REQUIRE(j["proxies"][0]["circuit_open_count"] == 2);
+  REQUIRE(j["proxies"][0]["last_probe_unix_ms"] == 1234);
+  REQUIRE(j["proxies"][0]["probe_failure_count"] == 4);
 }
 
 TEST_CASE("admin /api/stats shape and real counters") {
@@ -52,6 +74,7 @@ TEST_CASE("admin /api/stats shape and real counters") {
   AdminServer a(cfg3(), m);
   json j = json::parse(a.route("GET", "/api/stats").body);
   for (const char* key : {"timestamp_unix_ms", "policy", "requests_total", "requests_successful", "requests_failed", "timeouts",
+                          "health_probe_successes", "health_probe_failures",
                           "requests_per_second", "success_rate", "active_connections", "worker_count", "aimd_limit",
                           "queue_length", "latency_ms"}) {
     INFO(key);
@@ -73,7 +96,8 @@ TEST_CASE("admin /metrics is Prometheus text with the required names") {
   REQUIRE(r.content_type.find("text/plain") == 0);
   for (const char* name : {"requests_total 3", "requests_successful", "requests_failed", "timeouts", "active_connections",
                            "requests_per_second", "proxy_rtt{proxy=\"0\"}", "proxy_success_rate", "proxy_failure_count",
-                           "worker_count", "queue_length", "latency_ms{quantile=\"0.99\"}"}) {
+                           "worker_count", "queue_length", "health_probe_successes_total 0", "health_probe_failures_total 0",
+                           "proxy_probe_successes_total", "proxy_circuit_open_count", "latency_ms{quantile=\"0.99\"}"}) {
     INFO(name);
     REQUIRE(r.body.find(name) != std::string::npos);
   }

@@ -16,7 +16,7 @@ std::optional<ProxyId> PolicyRouter::select(const Job& job, const std::vector<Pr
   std::vector<const ProxyState*> eligible;
   eligible.reserve(table.size());
   for (const auto& proxy : table) {
-    if (proxy.healthy && proxy.circuit_state != CircuitState::Open && !tried.contains(proxy.id))
+    if (proxy.healthy && proxy.circuit_state == CircuitState::Closed && !tried.contains(proxy.id))
       eligible.push_back(&proxy);
   }
   if (eligible.empty()) return std::nullopt;

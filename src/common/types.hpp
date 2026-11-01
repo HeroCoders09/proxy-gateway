@@ -59,6 +59,15 @@ struct ProxyState {
   int active_connections = 0;
   TimePoint last_probe_time{};
   CircuitState circuit_state = CircuitState::Closed;
+  double rolling_success_rate = 1.0;
+  double rolling_rtt_ms = 0.0;
+  uint64_t circuit_open_count = 0;
+  uint64_t probe_success_count = 0;
+  uint64_t probe_failure_count = 0;
+  int64_t last_probe_unix_ms = 0;
+  // Internal breaker fields are copied with snapshots but are not part of admin JSON.
+  TimePoint circuit_opened_at{};
+  bool half_open_probe_in_flight = false;
 };
 
 struct DomainQueue {
