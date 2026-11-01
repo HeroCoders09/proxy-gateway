@@ -1,0 +1,59 @@
+# Test bed for the Intelligent Concurrent Proxy Gateway.
+#   Start:  docker compose -f testbed/docker-compose.yml up -d --build
+#   Stop:   docker compose -f testbed/docker-compose.yml down
+# Without Docker, testbed/run_local.sh starts the same servers as plain processes.
+#
+# Published ports (all on 127.0.0.1 only):
+#   8080  target (direct requests)        3128 / 3129 / 3130  proxy1 / proxy2 / proxy3
+#   3228 / 3229 / 3230  proxy fault-control ports (change delay and failure rate at run time)
+# The target answers to test.example, site-a.example and site-b.example on network "proxynet".
+
+name: proxygw
+
+networks:
+  proxynet:
+    name: proxynet
+
+services:
+  target:
+    build: ./target
+    container_name: target
+    networks:
+      proxynet:
+        aliases: [test.example, site-a.example, site-b.example]
+    ports: ["127.0.0.1:8080:80"]
+    environment:
+      DELAY_MS: "0"        # optional default response delay for /products/*
+
+  proxy1:   # normal
+    build: ./proxies
+    container_name: proxy1
+    networks: [proxynet]
+    depends_on: { target: { condition: service_healthy } }
+    environment: { PROXY_ID: proxy1, CONTROL_PORT: "3200" }
+    ports: ["127.0.0.1:3128:3128", "127.0.0.1:3228:3200"]
+
+  proxy2:   # +100 ms delay
+    build: ./proxies
+    container_name: proxy2
+    networks: [proxynet]
+    depends_on: { target: { condition: service_healthy } }
+    environment: { PROXY_ID: proxy2, CONTROL_PORT: "3200", DELAY_MS: "100" }
+    ports: ["127.0.0.1:3129:3128", "127.0.0.1:3229:3200"]
+
+  proxy3:   # about 20 percent failures
+    build: ./proxies
+    container_name: proxy3
+    networks: [proxynet]
+    depends_on: { target: { condition: service_healthy } }
+    environment: { PROXY_ID: proxy3, CONTROL_PORT: "3200", FAIL_PCT: "20" }
+    ports: ["127.0.0.1:3130:3128", "127.0.0.1:3230:3200"]
+
+  gateway:  # placeholder: only started with --profile gateway (UNVERIFIED in Phase 1)
+    profiles: ["gateway"]
+    build: { context: .., dockerfile: testbed/gateway/Dockerfile }
+    container_name: gateway
+    networks: [proxynet]
+    depends_on: [proxy1, proxy2, proxy3]
+    volumes: ["../config/gateway.docker.json:/etc/gateway/gateway.json:ro"]
+    ports: ["127.0.0.1:8000:8000", "127.0.0.1:9000:9000"]   # admin published to localhost only
