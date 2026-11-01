@@ -1,0 +1,67 @@
+{
+  "listen": {
+    "host": "0.0.0.0",
+    "port": 8000
+  },
+  "admin": {
+    "host": "0.0.0.0",
+    "port": 9000
+  },
+  "proxies": [
+    {
+      "host": "proxy1",
+      "port": 3128
+    },
+    {
+      "host": "proxy2",
+      "port": 3128
+    },
+    {
+      "host": "proxy3",
+      "port": 3128
+    }
+  ],
+  "policy": "roundrobin",
+  "forwarder": "simple",
+  "rate_limits": {
+    "default": {
+      "rate": 1000,
+      "burst": 2000
+    },
+    "site-a.example": {
+      "rate": 50,
+      "burst": 50
+    }
+  },
+  "queue_limit": 10000,
+  "workers": {
+    "min": 4,
+    "max": 64,
+    "alpha": 1,
+    "beta": 0.5
+  },
+  "timeouts": {
+    "connect_ms": 2000,
+    "response_ms": 10000
+  },
+  "circuit": {
+    "threshold": 5,
+    "cooldown_ms": 10000
+  },
+  "weights": {
+    "latency": 0.5,
+    "load": 0.3,
+    "failure": 0.2
+  },
+  "ingress": {
+    "threads": 16,
+    "max_header_bytes": 16384,
+    "max_body_bytes": 1048576,
+    "read_timeout_ms": 5000,
+    "pending_connections": 1024
+  },
+  "output": {
+    "format": "none",
+    "path": ""
+  }
+}
