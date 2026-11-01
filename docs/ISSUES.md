@@ -12,7 +12,7 @@ Bugs, gaps and deferred work that are not fixed yet, with the phase that should 
 - Found in phase: 1   Should be fixed in phase: 1 (first action of whoever has Docker), otherwise 2
 - Description: No Docker daemon was available in the Phase 1 development environment. The compose file parses as valid YAML and the same servers were verified in local mode (`testbed/run_local.sh`), but `docker compose -f testbed/docker-compose.yml up -d --build --wait` has not been run. UNVERIFIED: image builds, the `proxynet` aliases (`test.example` and the others), health checks, published ports.
 - Impact: Phase 1 checklist item "`docker compose up` starts the full test bed with one command" is not confirmed, so `phase-1-done` has not been tagged (D-003).
-- Status: Open. To close: run `scripts/smoke.sh` (uses Docker automatically when available) and `testbed/verify_testbed.sh`, then record the result in `docs/PROGRESS.md`.
+- Status: Fixed 2026-11-01. Verified on the owner's laptop with Docker: all four containers Healthy about 4 s after `up`, `scripts/smoke.sh` passed in Docker mode, and `testbed/verify_testbed.sh` passed against the containers (proxy2 minus proxy1 100.9 ms; proxy3 17.5 percent failures of 200; proxy1 0 percent). First attempt failed on a host port clash (8080), fixed in D-018. The harmless warning "Docker Compose is configured to build using Bake, but buildx isn't installed" appears and can be ignored.
 
 ## I-003: Ingress is synchronous (one handler thread per in-flight request)
 - Found in phase: 1   Should be fixed in phase: 2
@@ -60,7 +60,7 @@ Bugs, gaps and deferred work that are not fixed yet, with the phase that should 
 - Found in phase: 1   Should be fixed in phase: 1 or 2
 - Description: The code was built and tested with GCC 13.3 and Clang 18 on Ubuntu 24.04. The handbook targets GCC 11+ / Ubuntu 22.04+, and `testbed/gateway/Dockerfile` (Ubuntu 22.04) has never been built. UNVERIFIED.
 - Impact: Possible compile error on older compilers; the gateway container is optional (D-014).
-- Status: Open
+- Status: Partly fixed 2026-11-01: a GCC 11.4.0 build on Ubuntu 22.04 (owner's laptop) compiled with no warnings and passed all 71 test cases. Still open: `testbed/gateway/Dockerfile` has never been built (`docker compose --profile gateway up --build`).
 
 ## I-011: Target `/stats` keeps one counter per second forever
 - Found in phase: 1   Should be fixed in phase: 2

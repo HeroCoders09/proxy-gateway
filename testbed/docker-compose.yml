@@ -4,7 +4,7 @@
 # Without Docker, testbed/run_local.sh starts the same servers as plain processes.
 #
 # Published ports (all on 127.0.0.1 only):
-#   8080  target (direct requests)        3128 / 3129 / 3130  proxy1 / proxy2 / proxy3
+#   18080 target (direct requests; env TARGET_HOST_PORT)   3128 / 3129 / 3130  proxy1 / proxy2 / proxy3
 #   3228 / 3229 / 3230  proxy fault-control ports (change delay and failure rate at run time)
 # The target answers to test.example, site-a.example and site-b.example on network "proxynet".
 
@@ -21,7 +21,7 @@ services:
     networks:
       proxynet:
         aliases: [test.example, site-a.example, site-b.example]
-    ports: ["127.0.0.1:8080:80"]
+    ports: ["127.0.0.1:${TARGET_HOST_PORT:-18080}:80"]   # override if 18080 is taken: TARGET_HOST_PORT=19090
     environment:
       DELAY_MS: "0"        # optional default response delay for /products/*
 

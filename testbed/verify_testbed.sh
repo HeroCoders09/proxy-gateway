@@ -34,6 +34,9 @@ fail_pct() {  # proxy_port, count
   awk -v b="$bad" -v n="$n" 'BEGIN{printf "%.1f", b/n*100}'
 }
 
+for p in 3128 3129 3130; do
+  (exec 3<>/dev/tcp/127.0.0.1/$p) 2>/dev/null || { echo "FAIL nothing is listening on proxy port $p: start the test bed first (testbed/run_local.sh start, or docker compose up)"; exit 2; }
+done
 a1=$(avg_ms 3128 50); a2=$(avg_ms 3129 50)
 echo "proxy1 avg latency: ${a1} ms (normal)"
 echo "proxy2 avg latency: ${a2} ms (expected about proxy1 + 100 ms)"

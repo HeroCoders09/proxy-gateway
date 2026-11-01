@@ -173,3 +173,13 @@ Append-only. Number decisions D-001, D-002 and so on. Never edit an old entry; s
 - Alternatives considered: Reading the whole request first (unbounded work for hostile input).
 - Consequences: A malformed request can hold a handler thread for up to 200 ms. Phase 2 (queue-based ingress) must keep this behaviour for 400 replies.
 - Status: Active
+
+## D-018: Docker host port for the target moves from 8080 to 18080 and becomes configurable
+- Date: 2026-11-01
+- Phase: 1
+- Made by: Phase 1 owner
+- Decision: In `testbed/docker-compose.yml` the target is published on `127.0.0.1:${TARGET_HOST_PORT:-18080}`. This supersedes only the "target 8080" part of D-012; everything else in D-012 stands. `scripts/lib.sh` exports the variable and prints a hint when `docker compose up` fails.
+- Why: First real Docker run (on the owner's laptop) failed because host port 8080 was already in use. 8080 is a very common port.
+- Alternatives considered: Keeping 8080 (clashes with many dev tools); making the proxy ports configurable too (they are baked into the gateway configs; if 3128 to 3130 clash, change them in the compose file and `config/gateway.local.json` together and log it).
+- Consequences: Docs and scripts now say 18080 for Docker mode. Local mode still uses 8081.
+- Status: Active
