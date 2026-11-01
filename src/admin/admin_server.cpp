@@ -34,7 +34,8 @@ const char* kUiPlaceholder =
 
 }  // namespace
 
-AdminServer::AdminServer(const GatewayConfig& cfg, Metrics& metrics) : cfg_(cfg), metrics_(metrics) {}
+AdminServer::AdminServer(const GatewayConfig& cfg, Metrics& metrics, std::function<Phase2Stats()> phase2)
+    : cfg_(cfg), metrics_(metrics), phase2_(std::move(phase2)) {}
 
 AdminServer::~AdminServer() { stop(); }
 
@@ -163,7 +164,8 @@ AdminServer::Reply AdminServer::route(const std::string& method, const std::stri
     uint64_t ok = metrics_.get(Counter::RequestsSuccessful);
     uint64_t failed = metrics_.get(Counter::RequestsFailed);
     double success_rate = (ok + failed) == 0 ? 1.0 : static_cast<double>(ok) / static_cast<double>(ok + failed);
-    json queue = json::object();  // per-domain queue length: real data from Phase 2
+    Phase2Stats p2 = phase2_ ? phase2_() : Phase2Stats{};
+    json queue = p2.queue_length;
     return json_reply({{"stub", true},
                        {"timestamp_unix_ms", unix_ms_now()},
                        {"policy", cfg_.policy},
@@ -173,9 +175,9 @@ AdminServer::Reply AdminServer::route(const std::string& method, const std::stri
                        {"timeouts", metrics_.get(Counter::Timeouts)},
                        {"requests_per_second", 0.0},
                        {"success_rate", success_rate},
-                       {"active_connections", 0},
-                       {"worker_count", 0},
-                       {"aimd_limit", cfg_.workers.max},
+                       {"active_connections", p2.active_jobs},
+                       {"worker_count", p2.worker_count},
+                       {"aimd_limit", p2.aimd_limit},
                        {"queue_length", queue},
                        {"latency_ms", {{"p50", lp.p50}, {"p95", lp.p95}, {"p99", lp.p99}}}});
   }
@@ -188,10 +190,15 @@ AdminServer::Reply AdminServer::route(const std::string& method, const std::stri
       << "# TYPE requests_failed counter\nrequests_failed " << metrics_.get(Counter::RequestsFailed) << "\n"
       << "# TYPE timeouts counter\ntimeouts " << metrics_.get(Counter::Timeouts) << "\n"
       << "# TYPE bad_requests counter\nbad_requests " << metrics_.get(Counter::BadRequests) << "\n"
-      << "# TYPE active_connections gauge\nactive_connections 0\n"
+      << "# TYPE queue_rejected counter\nqueue_rejected " << metrics_.get(Counter::QueueRejected) << "\n";
+    Phase2Stats p2 = phase2_ ? phase2_() : Phase2Stats{};
+    o << "# TYPE active_connections gauge\nactive_connections " << p2.active_jobs << "\n"
       << "# TYPE requests_per_second gauge\nrequests_per_second 0\n"
-      << "# TYPE worker_count gauge\nworker_count 0\n"
-      << "# TYPE queue_length gauge\nqueue_length 0\n"
+      << "# TYPE worker_count gauge\nworker_count " << p2.worker_count << "\n"
+      << "# TYPE aimd_limit gauge\naimd_limit " << p2.aimd_limit << "\n"
+      << "# TYPE queue_length gauge\n";
+    for (const auto& [domain, size] : p2.queue_length) o << "queue_length{domain=\"" << domain << "\"} " << size << "\n";
+    o
       << "# TYPE latency_ms summary\n"
       << "latency_ms{quantile=\"0.5\"} " << lp.p50 << "\n"
       << "latency_ms{quantile=\"0.95\"} " << lp.p95 << "\n"

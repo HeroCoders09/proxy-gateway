@@ -16,6 +16,7 @@ enum class Counter : size_t {
   RequestsFailed,         // transport error, or target/proxy status >= 500
   Timeouts,               // connect or response timeouts (also counted in RequestsFailed)
   BadRequests,            // malformed requests answered with 400
+  QueueRejected,          // domain queue was full; answered with 503
   kCount
 };
 

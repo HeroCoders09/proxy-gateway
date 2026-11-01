@@ -18,7 +18,7 @@ Bugs, gaps and deferred work that are not fixed yet, with the phase that should 
 - Found in phase: 1   Should be fixed in phase: 2
 - Description: A handler thread parses the request, forwards it and replies (D-005). In-flight requests are capped at `ingress.threads` (16) and a slow proxy holds a thread for up to the response timeout.
 - Impact: No queues, rate limits or AIMD yet. This is the Phase 2 starting point.
-- Status: Open
+- Status: Fixed 2026-11-01 in Phase 2: ingress now parses then transfers the client descriptor to the domain scheduler; bounded workers forward and write replies. The fixed ingress parsing pool remains by design.
 
 ## I-004: Client connections are closed after every response
 - Found in phase: 1   Should be fixed in phase: 5 or 6

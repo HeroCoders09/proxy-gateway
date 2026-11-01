@@ -5,6 +5,8 @@
 // Bound to localhost by default (SRS security requirement).
 #include <atomic>
 #include <chrono>
+#include <functional>
+#include <map>
 #include <string>
 #include <thread>
 
@@ -14,9 +16,11 @@
 
 namespace pg {
 
+struct Phase2Stats { std::map<std::string, size_t> queue_length; int worker_count = 0; int aimd_limit = 0; int active_jobs = 0; };
+
 class AdminServer {
  public:
-  AdminServer(const GatewayConfig& cfg, Metrics& metrics);
+  AdminServer(const GatewayConfig& cfg, Metrics& metrics, std::function<Phase2Stats()> phase2 = {});
   ~AdminServer();
   AdminServer(const AdminServer&) = delete;
   AdminServer& operator=(const AdminServer&) = delete;
@@ -39,6 +43,7 @@ class AdminServer {
 
   const GatewayConfig cfg_;
   Metrics& metrics_;
+  std::function<Phase2Stats()> phase2_;
   Fd listen_fd_;
   uint16_t bound_port_ = 0;
   std::atomic<bool> stop_{false};
