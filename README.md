@@ -2,7 +2,7 @@
 
 A C++20/Linux gateway that forwards a high volume of HTTP requests through the best proxy in a managed pool (scheduling, rate limiting, AIMD concurrency, routing policies, health checks and circuit breaking, keep-alive connection reuse, metrics and a demo dashboard). Group 1 project, Computer Networks, IIT Roorkee. Built in six serial phases; see the team handbook.
 
-**Status: Phase 1 (foundation and skeleton) built, awaiting Docker verification. Start every session with `docs/PROJECT_CONTEXT.md`, then the latest `docs/HANDOFF_PHASE_N.md`.**
+**Status: Phase 1 (foundation and skeleton) done and verified (tag `phase-1-done`). Next: Phase 2. Start every session with `docs/PROJECT_CONTEXT.md`, then the latest `docs/HANDOFF_PHASE_N.md`.**
 
 ## Quick start
 
@@ -49,7 +49,7 @@ testbed/run_local.sh stop
 
 ## Ports
 
-8000 gateway client port, 9000 admin and dashboard (localhost only), 9100 control service (Phase 6, test bed only). Test bed: target 8080 (Docker) or 8081 (local), proxies 3128 / 3129 / 3130.
+8000 gateway client port, 9000 admin and dashboard (localhost only), 9100 control service (Phase 6, test bed only). Test bed: target 18080 (Docker, override with `TARGET_HOST_PORT`) or 8081 (local), proxies 3128 / 3129 / 3130.
 
 ## Rules for contributors (and AI agents)
 

@@ -1,6 +1,6 @@
 # Handoff: Phase 1 Foundation and skeleton
 
-- Owner: Gourav (with a Claude agent)   Dates: 2026-11-01 to 2026-11-01   Branch/tag: `phase-1-foundation` (tag `phase-1-done` NOT yet created, see "Known problems")
+- Owner: Gourav (with a Claude agent)   Dates: 2026-11-01 to 2026-11-01   Branch/tag: `phase-1-foundation`, merged to `main` and tagged `phase-1-done`
 
 **Open this file first. Then read `docs/PROGRESS.md` (bottom), `docs/DECISIONS.md`, `docs/INTERFACES.md`, `docs/ISSUES.md`.**
 
@@ -33,7 +33,7 @@ cmake -S . -B build-asan -DPG_SANITIZE=ON -DCMAKE_BUILD_TYPE=Debug && cmake --bu
 tests/e2e/run_phase1_acceptance.sh                  # add --local to skip Docker
 ```
 
-Needs: GCC 13 or Clang 18 (what it was built with; GCC 11 UNVERIFIED, I-010), CMake 3.20+, Python 3 (test bed and acceptance scripts, standard library only), curl. Docker is optional.
+Needs: GCC 11.4 or newer (built and tested with GCC 11.4, GCC 13.3 and Clang 18), CMake 3.20+, Python 3 (test bed and acceptance scripts, standard library only), curl. Docker is optional.
 
 Run by hand: `testbed/run_local.sh start` (or the Docker command below), then `./build/gateway --config config/gateway.local.json`, then `curl -x http://127.0.0.1:8000 http://test.example/products/123`. Docker test bed: `docker compose -f testbed/docker-compose.yml up -d --build`.
 
@@ -47,7 +47,7 @@ Expected last line: `SMOKE PASS: GET http://test.example/products/123 via gatewa
 
 ## Acceptance results
 
-Measured on 2026-11-01 from a clean clone, local (no-Docker) test bed, GCC 13.3 on Ubuntu 24.04.
+Measured on 2026-11-01. Unit tests, sanitizer run and the acceptance script: clean clone, local test bed, GCC 13.3 on Ubuntu 24.04. Unit tests also on GCC 11.4 (Ubuntu 22.04, owner's laptop). Docker items: owner's laptop.
 
 | Done-checklist item | Result | Evidence |
 | --- | --- | --- |
@@ -55,8 +55,8 @@ Measured on 2026-11-01 from a clean clone, local (no-Docker) test bed, GCC 13.3 
 | 1,000 sequential requests return correct bodies | PASS, 1000 of 1000 | e2e check, 1.8 to 1.9 s including the direct comparison requests |
 | Malformed request returns HTTP 400 and the gateway keeps running | PASS | 9 malformed cases (garbage, relative URL, bad version, bad method, https URL, bad header, conflicting Content-Length, 40 KB header, truncated request) all returned 400; gateway then still served correct bodies; 20 client connections reset mid-request did not hurt it |
 | Invalid config rejected with a clear message and non-zero exit code (UC9) | PASS | 7 invalid files, a missing file and an invalid `--policy` all exit with code 2 and a `gateway: error: config: ...` message; list in the acceptance script output |
-| `docker compose up` starts the full test bed with one command | **UNVERIFIED** | No Docker daemon was available. Compose file is valid YAML; the same servers work in local mode (I-002) |
-| Delay on Proxy 2 and failures on Proxy 3 verified with direct requests | PASS (local mode) | `testbed/verify_testbed.sh`: proxy2 minus proxy1 average latency 100.6 to 100.9 ms (50 requests each); proxy3 failed 14.5, 18.0 and 21.0 percent of 200 requests in three runs; proxy1 0 percent |
+| `docker compose up` starts the full test bed with one command | PASS | Run on the owner's laptop (Docker, Ubuntu 22.04, GCC 11.4): target, proxy1, proxy2 and proxy3 all Healthy about 4 s after `up --wait`; `scripts/smoke.sh` passed in Docker mode (I-002 closed) |
+| Delay on Proxy 2 and failures on Proxy 3 verified with direct requests | PASS (local mode and Docker) | `testbed/verify_testbed.sh`: proxy2 minus proxy1 average latency 100.6 to 100.9 ms (50 requests each); proxy3 failed 14.5, 18.0, 21.0 percent (local) and 17.5 percent (Docker) of 200 requests; proxy1 0 percent in every run |
 | Sanitizer build passes the unit tests with no errors | PASS | 71 test cases, 1,250 assertions with `-fsanitize=address,undefined`; the acceptance script was also run against the sanitizer-built gateway with no sanitizer output |
 | `docs/` files exist, decisions logged, handoff written | PASS | This folder |
 
@@ -76,14 +76,14 @@ D-001 to D-017 (see `docs/DECISIONS.md`). The ones later phases are most likely 
 
 See `docs/ISSUES.md` (I-001 to I-012). The important ones:
 
-- **I-002 / I-010: the Docker test bed and the gateway Dockerfile have never run.** Phase 1's `phase-1-done` tag and the merge to `main` are waiting for this (D-003).
+- I-010: `testbed/gateway/Dockerfile` (the optional gateway container, compose profile `gateway`) has never been built.
 - I-003: ingress is synchronous, so in-flight requests are capped at 16 until Phase 2.
 - I-005: routing policy, workers, rate limits, circuit and weights are accepted and validated but not used yet.
 - I-007: the test-bed target and proxies are Python, which may cap throughput results.
 
 ## First things the next owner should do
 
-1. If you have Docker: run `scripts/smoke.sh` and `testbed/verify_testbed.sh` with the Docker test bed, fix anything that breaks, record the result in `docs/PROGRESS.md` and close I-002. Then merge `phase-1-foundation` into `main` and tag `phase-1-done` (handbook 2.4 step 5).
+1. Check out `main` (tag `phase-1-done`), run the build and `./build/pg_tests`, then `scripts/smoke.sh`, to confirm the starting point is green. Create your phase branch `phase-2-scheduling` (D-003).
 2. Read the handbook's Phase 2 section, then build and run the tests to confirm everything is green.
 3. Phase 2 starting points: replace the synchronous `Listener::Handler` (`src/main.cpp` builds it; `GatewayCore::handle` is the current handler) with "enqueue the Job into its domain queue". The reply must be written later by a worker with `write_response(job.client_fd, ...)`, so the ingress must keep the client socket open until then (today the handler thread owns it and closes it on return; change that ownership deliberately and log a decision). Keep the lingering close for 400 replies (D-017).
 4. Add Phase 2 counters by appending to `enum class Counter` in `src/common/metrics.hpp` (before `kCount`) and publish them through the existing admin field names in `docs/INTERFACES.md` (`queue_length`, `worker_count`, `aimd_limit`).

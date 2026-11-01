@@ -3,9 +3,9 @@
 Newest entries at the bottom of the Log. Times are UTC.
 
 ## Current state (keep this block up to date)
-- Current phase: 1 (built; one checklist item awaiting Docker, see I-002). Next: Phase 2
+- Current phase: 1 done. Next: Phase 2
 - Current owner: Phase 1 owner (Gourav, with a Claude agent)
-- Branch: `phase-1-foundation` (not yet merged to `main`, not yet tagged `phase-1-done`; see D-003)
+- Branch: merged to `main`, tagged `phase-1-done` (D-003)
 - Last green build and test run: 2026-11-01 16:06 (clean clone: build with no warnings, 71 test cases / 1,250 assertions pass, sanitizer build passes, acceptance script passes)
 - Command that shows current state: `cmake -S . -B build && cmake --build build -j && ./build/pg_tests && tests/e2e/run_phase1_acceptance.sh --local`
 
@@ -13,7 +13,7 @@ Newest entries at the bottom of the Log. Times are UTC.
 
 | Phase | Name | Owner | Status | Handoff file |
 | --- | --- | --- | --- | --- |
-| 1 | Foundation and skeleton | Gourav + Claude agent | Built; Docker check pending (I-002) | `docs/HANDOFF_PHASE_1.md` |
+| 1 | Foundation and skeleton | Gourav + Claude agent | Done (tag `phase-1-done`) | `docs/HANDOFF_PHASE_1.md` |
 | 2 | Scheduling and concurrency |  | Not started | `docs/HANDOFF_PHASE_2.md` |
 | 3 | Routing and retries |  | Not started | `docs/HANDOFF_PHASE_3.md` |
 | 4 | Health and fault tolerance |  | Not started | `docs/HANDOFF_PHASE_4.md` |
@@ -36,9 +36,13 @@ Newest entries at the bottom of the Log. Times are UTC.
 - 2026-11-01 16:04 Claude agent: Wrote `docs/` (all six tracking files), `README.md`, `.gitignore`. Committed on `phase-1-foundation`.
 - 2026-11-01 16:06 Claude agent: Clean-clone check: build with no warnings, 71 test cases pass (normal and sanitizer builds), acceptance script passes, smoke test passes. Wrote `docs/HANDOFF_PHASE_1.md`.
 
+- 2026-11-01 16:20 Gourav (owner's laptop, GCC 11.4, Ubuntu 22.04): `cmake ... && ./build/pg_tests` built with no warnings and passed 71 test cases / 1,250 assertions.
+- 2026-11-01 16:22 Gourav + Claude agent: First Docker run failed on a host port clash (8080 in use). Target host port moved to 18080 and made configurable (D-018); `verify_testbed.sh` now fails fast when the test bed is down.
+- 2026-11-01 16:30 Gourav: Docker run passed: all containers Healthy about 4 s, `scripts/smoke.sh` SMOKE PASS in Docker mode, `testbed/verify_testbed.sh` all PASS against the containers (proxy2 +100.9 ms, proxy3 17.5 percent failures, proxy1 0 percent). I-002 closed. Merged to `main`, tagged `phase-1-done`.
+
 ## Stop entry (write this before stopping)
-- Done: Everything in the Phase 1 task list (handbook 4.2, tasks 1 to 9) and deliverables (4.3). Automated checklist items pass (see `docs/HANDOFF_PHASE_1.md`, acceptance results).
-- Half done: Checklist item "`docker compose up` starts the full test bed with one command" is UNVERIFIED because no Docker daemon was available (I-002). The compose file, three Dockerfiles and the Docker network aliases have never run. `testbed/gateway/Dockerfile` is also unbuilt (I-010).
-- Next steps, in order: 1. On a machine with Docker run `scripts/smoke.sh` and `testbed/verify_testbed.sh`, fix anything that breaks, and record the result here and in I-002. 2. Merge `phase-1-foundation` into `main` and tag `phase-1-done` (D-003). 3. Hand Phase 2 to its owner with `docs/HANDOFF_PHASE_1.md` as the first file to open.
-- Known problems: see `docs/ISSUES.md` (I-001 to I-012).
-- How to resume: `cd proxy-gateway && git checkout phase-1-foundation && cmake -S . -B build && cmake --build build -j && ./build/pg_tests && scripts/smoke.sh`
+- Done: All of Phase 1 (handbook 4.2 tasks 1 to 9, deliverables 4.3, every item of the done checklist 4.5). Evidence in `docs/HANDOFF_PHASE_1.md`.
+- Half done: Nothing in Phase 1. The optional gateway container (`testbed/gateway/Dockerfile`, compose profile `gateway`) has never been built (I-010).
+- Next steps, in order: 1. Phase 2 owner reads `docs/HANDOFF_PHASE_1.md`, builds, runs tests and `scripts/smoke.sh`. 2. Create branch `phase-2-scheduling`. 3. Replace the synchronous ingress handler with per-domain queues, token bucket, bounded worker pool and AIMD (handbook section 5).
+- Known problems: see `docs/ISSUES.md` (open: I-001, I-003 to I-012 except I-002; I-010 partly fixed).
+- How to resume: `git checkout main && cmake -S . -B build && cmake --build build -j && ./build/pg_tests && scripts/smoke.sh`

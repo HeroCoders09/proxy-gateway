@@ -166,7 +166,7 @@ Other paths return 404 `{"error":"not found"}`.
 | Target | `GET /products/<id>` (deterministic page containing the id), `GET /health` (`{"status":"ok"}`), `GET /stats` (request counts per Host header, with per-second counts), `?delay_ms=N` on any path. Host names `test.example`, `site-a.example`, `site-b.example` |
 | Proxy nodes | Forward proxy on 3128 (absolute-URL requests and CONNECT). Response header `X-Proxy-Id`. Faults: env `DELAY_MS`, `FAIL_PCT` (injected failures are HTTP 502 `injected failure`), optional `FAIL_SEED` |
 | Proxy control port | `GET /fault?delay_ms=N&fail_pct=P` sets faults at run time; `GET /fault` shows them |
-| Host ports (127.0.0.1) | Docker: target 8080, proxies 3128/3129/3130, control 3228/3229/3230. Local mode: target 8081, others the same |
+| Host ports (127.0.0.1) | Docker: target 18080 (env `TARGET_HOST_PORT`), proxies 3128/3129/3130, control 3228/3229/3230. Local mode: target 8081, others the same |
 
 ## Change history
 
