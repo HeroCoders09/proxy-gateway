@@ -28,9 +28,9 @@ Bugs, gaps and deferred work that are not fixed yet, with the phase that should 
 
 ## I-005: Routing policy is read but not applied
 - Found in phase: 1   Should be fixed in phase: 3
-- Description: `policy` and `--policy` are validated and reported in `/api/stats`, but `GatewayCore` always uses proxy 0. Similarly `workers`, `rate_limits`, `queue_limit`, `circuit` and `weights` are validated but unused.
-- Impact: Expected at this phase.
-- Status: Open
+- Description: Previously `policy` and `--policy` were validated but ignored by `GatewayCore`. Phase 3 now applies all five policies and the `weights` values. `workers`, rate limits and queue limits are used by Phase 2; circuit/health fields remain defaults until Phase 4.
+- Impact: No longer blocks routing. Phase 4 must drive `healthy` and circuit state to make those eligibility inputs dynamic.
+- Status: Partly fixed 2026-11-01 in Phase 3; health/circuit integration remains Phase 4 work.
 
 ## I-006: Admin server is a single-threaded stub with dummy data
 - Found in phase: 1   Should be fixed in phase: 6
@@ -73,3 +73,9 @@ Bugs, gaps and deferred work that are not fixed yet, with the phase that should 
 - Description: D-007 chose 400 for every ingress error to match the handbook's error list.
 - Impact: Less precise error for clients.
 - Status: Won't fix (see D-007)
+
+## I-013: SRS success definition has not been reconciled with D-010
+- Found in phase: 1   Should be fixed in phase: 4 (before final acceptance)
+- Description: D-010 counts transport success with a status below 500 as a successful request. The authoritative SRS text is not present in this checkout, so it remains UNVERIFIED whether that matches the SRS definition.
+- Impact: Phase 3 routing and proxy health use D-010 consistently; a differing SRS definition may require a later decision and metric adjustment.
+- Status: Open; bring the SRS text to the next team sync.

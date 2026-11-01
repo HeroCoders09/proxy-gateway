@@ -3,11 +3,11 @@
 Newest entries at the bottom of the Log. Times are UTC.
 
 ## Current state (keep this block up to date)
-- Current phase: 2 done. Next: Phase 3
-- Current owner: Phase 2 owner
-- Branch: `phase-2-scheduling`
-- Last green build and test run: 2026-11-01 22:58 (74 test cases / 1,267 assertions pass normally and under ASan/UBSan; local smoke passes)
-- Command that shows current state: `cmake -S . -B build && cmake --build build -j && ./build/pg_tests && scripts/smoke.sh --local`
+- Current phase: 3 done. Next: Phase 4
+- Current owner: Phase 3 owner
+- Branch: `phase-3-Routing`
+- Last green build and test run: 2026-11-01 18:57 UTC (82 test cases / 1,345 assertions, normal and ASan/UBSan)
+- Command that shows current state: `git status --short --branch && cmake -S . -B build && cmake --build build -j && ./build/pg_tests`
 
 ### Phase status tracker (mirror of handbook 10.3)
 
@@ -15,17 +15,25 @@ Newest entries at the bottom of the Log. Times are UTC.
 | --- | --- | --- | --- | --- |
 | 1 | Foundation and skeleton | Gourav + Claude agent | Done (tag `phase-1-done`) | `docs/HANDOFF_PHASE_1.md` |
 | 2 | Scheduling and concurrency | Phase 2 owner | Done | `docs/HANDOFF_PHASE_2.md` |
-| 3 | Routing and retries |  | Not started | `docs/HANDOFF_PHASE_3.md` |
+| 3 | Routing and retries | Phase 3 owner | Done | `docs/HANDOFF_PHASE_3.md` |
 | 4 | Health and fault tolerance |  | Not started | `docs/HANDOFF_PHASE_4.md` |
 | 5 | Fast network I/O |  | Not started | `docs/HANDOFF_PHASE_5.md` |
 | 6 | Dashboard, metrics, benchmarks, demo |  | Not started | `docs/HANDOFF_PHASE_6.md` |
 
 ## Open questions
 - Is HTTPS through the gateway (HTTP CONNECT) required? Today it returns 400 (I-001). Ask the team before Phase 5. Asked to: team, on 2026-11-01.
-- Does the SRS define "successful request" differently from D-010 (transport OK and status below 500)? Not checked against the SRS text. Ask the team before Phase 3.
+- Does the SRS define "successful request" differently from D-010 (transport OK and status below 500)? UNVERIFIED; the SRS text is not in this checkout. Carry to the next team sync before final acceptance.
 - Phase owner names in the handbook (Persons 1 to 6) are still blank.
 
 ## Log
+- 2026-11-01 18:43 UTC Phase 3 owner: Read the requested tracking files and handbook Sections 2/3/5. Baseline build and normal tests passed (74 cases / 1,267 assertions), local smoke passed, `bench/phase2_verify.py` passed (49/s site A, 100 site B, AIMD 8 -> 4 -> 6), and ASan/UBSan tests passed. Initial smoke was invalidated by a pre-existing listener on :8000; after stopping that listener (per recorded prior authorization), the required chain passed. No code was changed before the baseline passed.
+- 2026-11-01 18:43 UTC Phase 3 owner: Added D-020 for routing score normalization, RTT EMA (alpha 0.2), eligibility, two retry limit and GatewayCore retry ownership. Implemented the first draft of `PolicyRouter` and wired state snapshots, active reservations, outcome feedback, and retries into `GatewayCore`; normal build is in progress. Remaining: tests, admin/live proxy visibility, benchmark comparison/results, docs/interface/issues updates, and full normal/sanitizer validation.
+- 2026-11-01 18:43 UTC Phase 3 owner: `PolicyRouter` compiled cleanly. Initial test compile found the vendored Catch2 uses the amalgamated header (`catch_amalgamated.hpp`) rather than modular Catch2 includes; corrected the new test include. Rebuilding now.
+- 2026-11-01 18:47 UTC Phase 3 owner: Added routing/retry tests (79 cases / 1,301 assertions pass). A one-proxy retry exhaustion initially hid a prior timeout as 502; D-021 records the correction. Added `bench/phase3_compare.py`; five-policy run and recorded results are next. Full Phase 3 checklist and sanitizer validation remain.
+- 2026-11-01 18:51 UTC Phase 3 owner: All five policies ran against 100 requests at concurrency 8 and the result was written to `bench/results/phase3_routing.csv`; interpretation is in `bench/results/phase3_routing.md`. Initial comparison revealed latency cold-start starvation, so D-022 adds exploration for proxies without RTT samples. After that change, the run measured leastconn highest throughput (482 req/s) and lowest p50 (5.43 ms); sample is explicitly marked noisy and inconclusive for success-rate ranking. Added a deterministic leastconn reservation-balance test. Full final validation remains.
+- 2026-11-01 18:52 UTC Phase 3 owner: Final normal suite passed (81 cases / 1,335 assertions) and local smoke passed. `bench/phase2_verify.py` then failed because its three-proxy setup made the intentionally failing Proxy 3 selectable. D-023 records a minimal verifier-only change to restrict its temporary config to the normal proxy, isolating Phase 2 scheduler/AIMD checks. Rerunning the Phase 2 verifier and sanitizer validation next.
+- 2026-11-01 18:57 UTC Phase 3 owner: Final validation passed: 82 test cases / 1,345 assertions normally and under ASan/UBSan; local smoke passed; Phase 2 rate/AIMD verifier passed (50/s site A, 100 site B, AIMD 8 -> 4 -> 6). Added live Phase 3 retry/no-route/policy-selection counters and per-proxy requests/successes/failures/active/RTT to `/api/stats`, `/proxies` and `/metrics`; admin unit test passes.
+- 2026-11-01 18:58 UTC Phase 3 owner: `bench/phase3_retry_verify.py` passed an end-to-end local test: Proxy 3 timed out at the configured 500 ms response deadline, the gateway retried via proxy 1, returned 200, and recorded one retry with no active-count leak. Phase 3 checklist is complete; handoff written. SRS success-definition reconciliation remains UNVERIFIED because the source SRS is not present in this checkout.
 - 2026-11-01 11:32 to 11:41 (earlier working session, times from file dates): Repository skeleton, CMake with sanitizer option, shared structs and interfaces, config loader and CLI, ingress parser and listener, simple forwarder, stub admin server and unit tests were written. Decisions D-001 to D-010 were not written down at the time; they were reconstructed into `docs/DECISIONS.md` afterwards.
 - 2026-11-01 15:54 Claude agent: Read the handbook, inspected the existing code. Built it: 70 unit tests passed. Gaps found: no `docs/`, no `testbed/`, no scripts, no end-to-end checks.
 - 2026-11-01 15:56 Claude agent: Wrote the test bed: `testbed/target/server.py`, `testbed/proxies/faultproxy.py`, Dockerfiles, `docker-compose.yml`, `testbed/run_local.sh`, `testbed/verify_testbed.sh`, configs `gateway.local.json` and `gateway.docker.json` (D-011 to D-014). No Docker daemon was available, so the compose file is only syntax-checked (I-002).
@@ -43,8 +51,8 @@ Newest entries at the bottom of the Log. Times are UTC.
 - 2026-11-01 23:02 Phase 2 owner: Added live Phase 2 admin metrics and `bench/phase2_verify.py`. Local load/fault verification passed: site A max 50/s, site B 100 requests; AIMD 8 -> 4 -> 6 after injected failures and recovery.
 
 ## Stop entry (write this before stopping)
-- Done: Phase 2 checklist complete; handoff is `docs/HANDOFF_PHASE_2.md`.
-- Half done: Nothing in Phase 2.
-- Next steps: Phase 3 owner reads the handoff and implements routing/retries only.
-- Known problems: See `docs/ISSUES.md` for later-phase items.
-- How to resume: `cmake -S . -B build && cmake --build build -j && ./build/pg_tests && scripts/smoke.sh --local && git status --short`
+- Done: Phase 3 routing/retry checklist complete; handoff is `docs/HANDOFF_PHASE_3.md`.
+- Half done: Nothing in Phase 3.
+- Next steps: Phase 4 starts with `docs/HANDOFF_PHASE_3.md`; integrate the health monitor and circuit breaker with the existing proxy table and eligibility filter.
+- Known problems: The SRS success-definition question is UNVERIFIED because the SRS is not in this checkout. See `docs/ISSUES.md` for other open items.
+- How to resume / see current state: `git status --short --branch && cmake -S . -B build && cmake --build build -j && ./build/pg_tests`

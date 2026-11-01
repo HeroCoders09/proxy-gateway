@@ -13,6 +13,7 @@
 #include "common/config.hpp"
 #include "common/fd.hpp"
 #include "common/metrics.hpp"
+#include "common/types.hpp"
 
 namespace pg {
 
@@ -20,7 +21,8 @@ struct Phase2Stats { std::map<std::string, size_t> queue_length; int worker_coun
 
 class AdminServer {
  public:
-  AdminServer(const GatewayConfig& cfg, Metrics& metrics, std::function<Phase2Stats()> phase2 = {});
+  AdminServer(const GatewayConfig& cfg, Metrics& metrics, std::function<Phase2Stats()> phase2 = {},
+              std::function<std::vector<ProxyState>()> proxy_snapshot = {});
   ~AdminServer();
   AdminServer(const AdminServer&) = delete;
   AdminServer& operator=(const AdminServer&) = delete;
@@ -44,6 +46,7 @@ class AdminServer {
   const GatewayConfig cfg_;
   Metrics& metrics_;
   std::function<Phase2Stats()> phase2_;
+  std::function<std::vector<ProxyState>()> proxy_snapshot_;
   Fd listen_fd_;
   uint16_t bound_port_ = 0;
   std::atomic<bool> stop_{false};

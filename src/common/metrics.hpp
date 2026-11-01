@@ -17,6 +17,13 @@ enum class Counter : size_t {
   Timeouts,               // connect or response timeouts (also counted in RequestsFailed)
   BadRequests,            // malformed requests answered with 400
   QueueRejected,          // domain queue was full; answered with 503
+  Retries,                // additional attempts after the first attempt
+  NoRoute,                // requests for which no eligible proxy was available
+  RandomSelections,
+  RoundRobinSelections,
+  LeastConnSelections,
+  LatencySelections,
+  WeightedSelections,
   kCount
 };
 

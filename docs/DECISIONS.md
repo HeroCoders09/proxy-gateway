@@ -193,3 +193,43 @@ Append-only. Number decisions D-001, D-002 and so on. Never edit an old entry; s
 - Alternatives considered: Per-domain scheduler threads; a thread per request; measuring every completion.
 - Consequences: A domain queue full condition returns 503 and increments `queue_rejected`. Client descriptors deliberately move from ingress to scheduler, then workers. Phase 3 replaces only the fixed-proxy portion of `GatewayCore`.
 - Status: Active
+
+## D-020: Phase 3 routing scores, outcome smoothing and retry ownership
+- Date: 2026-11-01
+- Phase: 3
+- Made by: Phase 3 owner
+- Decision: Implement the five configured policies in a `PolicyRouter` behind `Router`. Candidate proxies must be healthy, not OPEN, and not already in `Job::tried_proxies`. Round-robin cycles across the current eligible list; least-connection uses the lowest active count; latency uses the lowest recent RTT; weighted uses `latency`, `load` and `failure` weights over normalized [0,1] values (RTT relative to the eligible-set maximum, active requests relative to the eligible-set maximum, and failure fraction). A dimension with no observed data is neutral (0.5). Ties use the lowest proxy id. Real outcomes update smoothed RTT with EMA alpha 0.2. `GatewayCore` owns retry orchestration: only transport errors are retried, through a different proxy, with at most two retries; target/proxy HTTP responses are returned unchanged. An empty route returns 502.
+- Why: This preserves the existing `Router` seam, keeps retries close to request/response mapping, gives comparable scale to policy inputs, and follows the Phase 3 checklist's failed connection/timeout retry behaviour. The eligibility rule deliberately allows HALF_OPEN because Phase 4 controls its one-test gate; OPEN is excluded now.
+- Alternatives considered: Put retries in `WorkerPool` (would duplicate HTTP response and metrics mapping); retry HTTP 5xx (would alter the specified pass-through behavior and can duplicate non-idempotent requests); use raw RTT in the weighted score (latency units would dominate arbitrary weights).
+- Consequences: At most three attempts per job. Attempts and successful/failed responses update proxy outcome counts; an RAII completion guard keeps active-load accounting balanced on every exit path. Weighted score uses current eligible-set normalization, not a global historical scale.
+- Status: Active
+
+## D-021: Preserve the last attempt result when no retry route remains
+- Date: 2026-11-01
+- Phase: 3
+- Made by: Phase 3 owner
+- Decision: If a transport failure occurs but the tried-proxy filter leaves no alternate route, return that last attempt's normal 502/504 mapping and `X-Gateway-Proxy`; count the unavailable retry route in `no_route`. Count `retries` and increment `Job::retry_count` only when a different proxy is actually reserved and forwarded.
+- Why: A one-proxy configuration must preserve the real timeout status (504) instead of masking it with a later routing condition (502), and retry metrics should represent forwarded retry attempts rather than failed route lookups.
+- Alternatives considered: Return 502 for every empty eligible set (hides the prior timeout); count every retry loop as a retry even if no second attempt was sent.
+- Consequences: An initially empty route still returns 502 without a proxy header. A failed attempt with no alternate route preserves its error class.
+- Status: Active
+
+## D-022: Explore proxies with no RTT sample under latency policy
+- Date: 2026-11-01
+- Phase: 3
+- Made by: Phase 3 owner
+- Decision: While the latency policy has eligible proxies with no RTT sample, cycle through those unmeasured proxies before comparing measured RTT values. Once each available proxy has a sample, choose the minimum RTT (ties by proxy id).
+- Why: Treating an unknown RTT as infinity avoids selecting it but can permanently starve it; treating it as zero would also select the same lowest-id proxy forever. A bounded round-robin exploration collects the measurements the policy needs.
+- Alternatives considered: Treat unknown as zero or infinity; random exploration.
+- Consequences: Initial requests under `latency` are distributed to collect samples. Later choices use measured values until eligibility changes and an unmeasured proxy becomes available.
+- Status: Active
+
+## D-023: Keep the Phase 2 verifier isolated from Phase 3 routing faults
+- Date: 2026-11-01
+- Phase: 3
+- Made by: Phase 3 owner
+- Decision: Update `bench/phase2_verify.py`'s temporary benchmark config to use only the normal first proxy. The script still injects a 100% failure on that proxy during its AIMD test.
+- Why: After Phase 3 enables configured routing, the Phase 2 verifier's previous three-proxy pool sent part of its correctness workload through the intentionally failing Proxy 3, causing unrelated 502 responses. The verifier is meant to measure Phase 2 rate isolation and AIMD behavior, not routing.
+- Alternatives considered: Disable Proxy 3's fault only, or accept Phase 2 verification as failing after Phase 3. A one-proxy temporary config isolates the exact Phase 2 mechanisms with the fewest dependencies.
+- Consequences: This changes only the test script's generated `/tmp` config; production configuration and routing are unaffected.
+- Status: Active

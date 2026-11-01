@@ -1,6 +1,7 @@
 #include "admin/admin_server.hpp"
 
 #include <arpa/inet.h>
+#include <algorithm>
 #include <netinet/in.h>
 #include <poll.h>
 #include <sys/socket.h>
@@ -34,8 +35,9 @@ const char* kUiPlaceholder =
 
 }  // namespace
 
-AdminServer::AdminServer(const GatewayConfig& cfg, Metrics& metrics, std::function<Phase2Stats()> phase2)
-    : cfg_(cfg), metrics_(metrics), phase2_(std::move(phase2)) {}
+AdminServer::AdminServer(const GatewayConfig& cfg, Metrics& metrics, std::function<Phase2Stats()> phase2,
+                         std::function<std::vector<ProxyState>()> proxy_snapshot)
+    : cfg_(cfg), metrics_(metrics), phase2_(std::move(phase2)), proxy_snapshot_(std::move(proxy_snapshot)) {}
 
 AdminServer::~AdminServer() { stop(); }
 
@@ -136,23 +138,30 @@ AdminServer::Reply AdminServer::route(const std::string& method, const std::stri
 
   if (path == "/health") {
     double uptime = std::chrono::duration<double>(std::chrono::steady_clock::now() - started_).count();
-    return json_reply({{"status", "ok"}, {"uptime_seconds", uptime}, {"version", "0.1.0"}, {"phase", 1}, {"stub", true}});
+    return json_reply({{"status", "ok"}, {"uptime_seconds", uptime}, {"version", "0.1.0"}, {"phase", 3}, {"stub", true}});
   }
 
   if (path == "/proxies") {
     json arr = json::array();
+    const std::vector<ProxyState> states = proxy_snapshot_ ? proxy_snapshot_() : std::vector<ProxyState>{};
     for (const auto& p : cfg_.proxies) {
+      auto state = std::find_if(states.begin(), states.end(), [&](const auto& s) { return s.id == p.id; });
+      const bool live = state != states.end();
+      const uint64_t successes = live ? state->success_count : 0;
+      const uint64_t failures = live ? state->failure_count : 0;
+      const uint64_t attempts = successes + failures;
       arr.push_back({{"id", p.id},
                      {"host", p.host},
                      {"port", p.port},
-                     {"healthy", true},
-                     {"rtt_ms", 0.0},
-                     {"success_count", 0},
-                     {"failure_count", 0},
-                     {"consecutive_failures", 0},
-                     {"success_rate", 1.0},
-                     {"active_connections", 0},
-                     {"circuit_state", "CLOSED"},
+                     {"healthy", live ? state->healthy : true},
+                     {"rtt_ms", live ? state->rtt_ms : 0.0},
+                     {"success_count", successes},
+                     {"failure_count", failures},
+                     {"requests_sent", attempts},
+                     {"consecutive_failures", live ? state->consecutive_failures : 0},
+                     {"success_rate", attempts ? static_cast<double>(successes) / attempts : 1.0},
+                     {"active_connections", live ? state->active_connections : 0},
+                     {"circuit_state", live ? to_string(state->circuit_state) : "CLOSED"},
                      {"circuit_open_count", 0},
                      {"last_probe_unix_ms", 0}});
     }
@@ -173,6 +182,13 @@ AdminServer::Reply AdminServer::route(const std::string& method, const std::stri
                        {"requests_successful", ok},
                        {"requests_failed", failed},
                        {"timeouts", metrics_.get(Counter::Timeouts)},
+                       {"retries", metrics_.get(Counter::Retries)},
+                       {"no_route", metrics_.get(Counter::NoRoute)},
+                       {"selections", {{"random", metrics_.get(Counter::RandomSelections)},
+                                       {"roundrobin", metrics_.get(Counter::RoundRobinSelections)},
+                                       {"leastconn", metrics_.get(Counter::LeastConnSelections)},
+                                       {"latency", metrics_.get(Counter::LatencySelections)},
+                                       {"weighted", metrics_.get(Counter::WeightedSelections)}}},
                        {"requests_per_second", 0.0},
                        {"success_rate", success_rate},
                        {"active_connections", p2.active_jobs},
@@ -191,6 +207,14 @@ AdminServer::Reply AdminServer::route(const std::string& method, const std::stri
       << "# TYPE timeouts counter\ntimeouts " << metrics_.get(Counter::Timeouts) << "\n"
       << "# TYPE bad_requests counter\nbad_requests " << metrics_.get(Counter::BadRequests) << "\n"
       << "# TYPE queue_rejected counter\nqueue_rejected " << metrics_.get(Counter::QueueRejected) << "\n";
+    o << "# TYPE retries counter\nretries " << metrics_.get(Counter::Retries) << "\n"
+      << "# TYPE no_route counter\nno_route " << metrics_.get(Counter::NoRoute) << "\n"
+      << "# TYPE routing_selections counter\n";
+    for (const auto& [name, counter] : std::vector<std::pair<const char*, Counter>>{
+             {"random", Counter::RandomSelections}, {"roundrobin", Counter::RoundRobinSelections},
+             {"leastconn", Counter::LeastConnSelections}, {"latency", Counter::LatencySelections},
+             {"weighted", Counter::WeightedSelections}})
+      o << "routing_selections{policy=\"" << name << "\"} " << metrics_.get(counter) << "\n";
     Phase2Stats p2 = phase2_ ? phase2_() : Phase2Stats{};
     o << "# TYPE active_connections gauge\nactive_connections " << p2.active_jobs << "\n"
       << "# TYPE requests_per_second gauge\nrequests_per_second 0\n"
@@ -204,10 +228,21 @@ AdminServer::Reply AdminServer::route(const std::string& method, const std::stri
       << "latency_ms{quantile=\"0.95\"} " << lp.p95 << "\n"
       << "latency_ms{quantile=\"0.99\"} " << lp.p99 << "\n"
       << "# TYPE proxy_rtt gauge\n# TYPE proxy_success_rate gauge\n# TYPE proxy_failure_count counter\n";
+    const std::vector<ProxyState> states = proxy_snapshot_ ? proxy_snapshot_() : std::vector<ProxyState>{};
     for (const auto& p : cfg_.proxies) {
-      o << "proxy_rtt{proxy=\"" << p.id << "\"} 0\n"
-        << "proxy_success_rate{proxy=\"" << p.id << "\"} 1\n"
-        << "proxy_failure_count{proxy=\"" << p.id << "\"} 0\n";
+      auto state = std::find_if(states.begin(), states.end(), [&](const auto& s) { return s.id == p.id; });
+      const bool live = state != states.end();
+      const uint64_t successes = live ? state->success_count : 0;
+      const uint64_t failures = live ? state->failure_count : 0;
+      const uint64_t attempts = successes + failures;
+      o << "proxy_requests_total{proxy=\"" << p.id << "\"} " << attempts << "\n"
+        << "proxy_successes_total{proxy=\"" << p.id << "\"} " << successes << "\n"
+        << "proxy_failures_total{proxy=\"" << p.id << "\"} " << failures << "\n"
+        << "proxy_active_connections{proxy=\"" << p.id << "\"} " << (live ? state->active_connections : 0) << "\n"
+        << "proxy_rtt{proxy=\"" << p.id << "\"} " << (live ? state->rtt_ms : 0.0) << "\n"
+        << "proxy_success_rate{proxy=\"" << p.id << "\"} "
+        << (attempts ? static_cast<double>(successes) / attempts : 1.0) << "\n"
+        << "proxy_failure_count{proxy=\"" << p.id << "\"} " << failures << "\n";
     }
     r.status = 200;
     r.content_type = "text/plain; version=0.0.4";
