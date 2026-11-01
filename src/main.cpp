@@ -60,7 +60,7 @@ int main(int argc, char** argv) {
   });
   AdminServer admin(cfg, metrics, [&scheduler, &pool] {
     return Phase2Stats{scheduler.queue_lengths(), pool.thread_count(), pool.aimd_limit(), pool.active_jobs()};
-  });
+  }, [&core] { return core.proxies(); });
   Listener listener(cfg, metrics, [&scheduler](Job job, Fd client, bool head_only) {
     if (!scheduler.enqueue(std::move(job), client, head_only))
       write_response(client.get(), make_error_response(503, "domain queue full"), false, 5000);
@@ -78,8 +78,7 @@ int main(int argc, char** argv) {
 
   log_info("gateway listening on " + cfg.listen_host + ":" + std::to_string(listener.port()) + ", admin (stub) on " +
            cfg.admin_host + ":" + std::to_string(admin.port()));
-  log_info("forwarding via proxy " + cfg.proxies.front().host + ":" + std::to_string(cfg.proxies.front().port) +
-           " (policy '" + cfg.policy + "' is recorded but routing starts in Phase 3)");
+  log_info("routing via " + std::to_string(cfg.proxies.size()) + " configured proxies using policy '" + cfg.policy + "'");
 
   while (!g_stop) std::this_thread::sleep_for(std::chrono::milliseconds(100));
 

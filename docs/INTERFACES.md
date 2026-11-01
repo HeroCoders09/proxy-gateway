@@ -12,7 +12,7 @@ Code locations: structs in `src/common/types.hpp`, interfaces in `src/common/int
 | `ProxyState` | `id` (`ProxyId` = int, index in config `proxies`), `host`, `port`, `healthy` (bool, default true), `rtt_ms` (double), `success_count`, `failure_count` (u64), `consecutive_failures` (u32), `active_connections` (int), `last_probe_time`, `circuit_state` (`CircuitState`: `Closed`, `Open`, `HalfOpen`; JSON strings `CLOSED`, `OPEN`, `HALF_OPEN`) | Phase 3 builds the thread-safe table; Phase 4 drives `healthy` and `circuit_state` |
 | `DomainQueue` | `jobs` (deque of `Job`), `queue_limit` (default 10000), `tokens`, `refill_rate` (tokens per second), `capacity` (burst B), `last_refill` | Phase 2 |
 | `Connection` | `fd` (`Fd`), `proxy_id`, `state` (`ConnState`: `Idle`, `Connecting`, `Active`, `Closed`), `last_used`, `requests_served`, `keep_alive`, `in_buf`, `out_buf` | Phase 5 |
-| `Metrics` (implements `MetricsSink`) | counters `RequestsTotal`, `RequestsSuccessful`, `RequestsFailed`, `Timeouts`, `BadRequests`, `QueueRejected`; bounded latency ring (4096 samples) giving p50, p95, p99 | `QueueRejected` is a Phase 2 full-domain-queue 503; each phase appends counters only |
+| `Metrics` (implements `MetricsSink`) | counters `RequestsTotal`, `RequestsSuccessful`, `RequestsFailed`, `Timeouts`, `BadRequests`, `QueueRejected`, `Retries`, `NoRoute`, and policy selections (`RandomSelections`, `RoundRobinSelections`, `LeastConnSelections`, `LatencySelections`, `WeightedSelections`); bounded latency ring (4096 samples) giving p50, p95, p99 | Retries counts additional attempts, NoRoute counts requests with no eligible proxy |
 | `GatewayConfig` | see "Config file keys" | Loaded and validated by `load_config_file` |
 | `HttpResponse` (`src/ingress/http_response.hpp`) | `status` (int), `headers`, `body` | Used for every client reply; `write_response(fd, resp, head_only, timeout_ms)` sends it |
 | `ForwardResult` | `error` (`ErrorKind`), `error_detail` (short string, never a body or credential), `status`, `headers`, `body`, `latency_ms` (connect + request + response), `proxy_id`; `ok()` is true when `error == None` | |
@@ -24,9 +24,9 @@ Code locations: structs in `src/common/types.hpp`, interfaces in `src/common/int
 | Interface | Signature and contract |
 | --- | --- |
 | `Forwarder` | `ForwardResult forward(const Job& job, const ProxyState& proxy)`. Thread-safe: may be called from many threads. Never throws for network problems; they come back as `ForwardResult.error`. Implemented by `SimpleForwarder` (Phase 1, `src/net/simple_forwarder.*`); Phase 5's epoll forwarder implements the same interface and is chosen by config `forwarder` |
-| `Router` | `std::optional<ProxyId> select(const Job& job, const std::vector<ProxyState>& table)`. Returns `nullopt` when no route is available. Phase 1 has no router (the gateway uses proxy 0); Phase 2 adds a stub, Phase 3 the real policies |
+| `Router` | `std::optional<ProxyId> select(const Job& job, const std::vector<ProxyState>& table)`. Returns `nullopt` when no route is available. Phase 3 `PolicyRouter` implements `random`, `roundrobin`, `leastconn`, `latency`, and `weighted`; candidates must be healthy, not OPEN, and not in `job.tried_proxies`. Latency mode explores eligible proxies without a sample before choosing minimum measured RTT (D-022) |
 | `RateLimiter` | `bool try_acquire(const std::string& domain)`. Must use a `Clock` that tests can fake. Phase 2 |
-| `HealthReporter` | `void report(ProxyId proxy_id, bool success, double rtt_ms)`. Called after every attempt and every probe. Phase 3 |
+| `HealthReporter` | `void report(ProxyId proxy_id, bool success, double rtt_ms)`. Phase 3 `GatewayCore` implements it: every attempt updates per-proxy successes/failures, consecutive failures and RTT EMA |
 | `MetricsSink` | `void inc(Counter c, uint64_t n = 1)`, `void observe_latency_ms(double ms)`. Thread-safe; the only way modules write measurements. Phase 2 to 5 add counters to the `Counter` enum (append before `kCount`; never reorder) |
 | `Clock` | `TimePoint now() const` on `std::chrono::steady_clock`. `SteadyClock` for production, `FakeClock` (`advance(d)`) for tests |
 | `Fd` | RAII file-descriptor owner: `get()`, `valid()`, `release()`, `reset(fd)`, move-only. No raw `close()` anywhere else |
@@ -47,7 +47,7 @@ Strict: unknown keys, wrong types and out-of-range values are rejected (exit cod
 | `admin.host` | IPv4 string | `127.0.0.1` | Admin bind address (localhost by default, SRS security) |
 | `admin.port` | int 1-65535 | 9000 | Admin and dashboard port |
 | `proxies` | array of `{host: string, port: int}` | required, at least 1 | Proxy pool; `ProxyId` is the array index. Phase 1 uses element 0 only |
-| `policy` | `random`, `roundrobin`, `leastconn`, `latency`, `weighted` | `roundrobin` | Routing policy (later: Phase 3). Overridden by `--policy` |
+| `policy` | `random`, `roundrobin`, `leastconn`, `latency`, `weighted` | `roundrobin` | Active routing policy. Overridden by `--policy` |
 | `forwarder` | `simple`, `epoll` | `simple` | Forwarder implementation. `epoll` is rejected at start-up until Phase 5 |
 | `rate_limits.default.rate` | number > 0 | 1000 | Token refill per second for domains with no entry (later: Phase 2) |
 | `rate_limits.default.burst` | number > 0 | 2000 | Bucket capacity B |
@@ -60,7 +60,7 @@ Strict: unknown keys, wrong types and out-of-range values are rejected (exit cod
 | `timeouts.response_ms` | int 1-3,600,000 | 10000 | Response timeout per attempt, measured from connect completion |
 | `circuit.threshold` | int >= 1 | 5 | Consecutive failures that open a circuit (later: Phase 4) |
 | `circuit.cooldown_ms` | int 1-3,600,000 | 10000 | OPEN to HALF_OPEN cooldown |
-| `weights.latency` / `.load` / `.failure` | number >= 0 | 0.5 / 0.3 / 0.2 | Weighted-score policy weights (later: Phase 3) |
+| `weights.latency` / `.load` / `.failure` | number >= 0 | 0.5 / 0.3 / 0.2 | Weighted-score components; normalized per eligible set (D-020) |
 | `ingress.threads` | int 1-4096 | 16 | Fixed handler-thread pool |
 | `ingress.max_header_bytes` | int 256 to 1 MiB | 16384 | Larger request heads get 400 |
 | `ingress.max_body_bytes` | int >= 1 | 1048576 | Larger bodies get 400 |
@@ -78,12 +78,12 @@ Ready-made configs: `config/gateway.json` (documented example, hosts `proxy1` to
 | Status | When |
 | --- | --- |
 | 400 | Malformed, oversized or incomplete request (see D-007) |
-| 502 | Connect failure, I/O error or unparseable proxy response, handler exception (later also: no route) |
+| 502 | Connect failure after retries, I/O error or unparseable proxy response, handler exception, no eligible route |
 | 503 | Ingress pending queue full (later: domain queue full) |
 | 504 | Connect or response timeout |
 | 429 | Reserved |
 
-All are `text/plain` with a short fixed message. Proxied responses keep the target's status and gain `X-Gateway-Proxy: <proxy id>`.
+All are `text/plain` with a short fixed message. Proxied responses keep the target's status and gain `X-Gateway-Proxy: <proxy id>`. Phase 3 retries `ConnectTimeout`, `ResponseTimeout`, `ConnectFailed`, `IoError` and `BadResponse` transport results through a different proxy, with at most two retries. HTTP responses, including 5xx, pass through without retry.
 
 ## Admin API
 
@@ -94,7 +94,7 @@ Units: times in milliseconds unless the name says otherwise; `_unix_ms` is milli
 ### `GET /health`
 
 ```json
-{"status": "ok", "uptime_seconds": 12.5, "version": "0.1.0", "phase": 1, "stub": true}
+{"status": "ok", "uptime_seconds": 12.5, "version": "0.1.0", "phase": 3, "stub": true}
 ```
 
 | Field | Type | Meaning |
@@ -110,7 +110,7 @@ Units: times in milliseconds unless the name says otherwise; `_unix_ms` is milli
 ```json
 {"stub": true, "proxies": [
   {"id": 0, "host": "127.0.0.1", "port": 3128, "healthy": true, "rtt_ms": 0.0,
-   "success_count": 0, "failure_count": 0, "consecutive_failures": 0, "success_rate": 1.0,
+   "requests_sent": 0, "success_count": 0, "failure_count": 0, "consecutive_failures": 0, "success_rate": 1.0,
    "active_connections": 0, "circuit_state": "CLOSED", "circuit_open_count": 0, "last_probe_unix_ms": 0}
 ]}
 ```
@@ -119,12 +119,13 @@ Units: times in milliseconds unless the name says otherwise; `_unix_ms` is milli
 | --- | --- | --- | --- |
 | `id` | int | Index in config `proxies` | Phase 1 |
 | `host`, `port` | string, int | Proxy address | Phase 1 |
-| `healthy` | bool | Derived health flag | Phase 4 |
-| `rtt_ms` | number | Recent smoothed RTT | Phase 3 |
-| `success_count`, `failure_count` | int | Attempts through this proxy | Phase 3 |
-| `consecutive_failures` | int | Current failure streak | Phase 3 |
+| `healthy` | bool | Eligibility health flag (default true) | Phase 4 |
+| `rtt_ms` | number | Recent smoothed RTT (EMA alpha 0.2) | Phase 3 |
+| `success_count`, `failure_count` | int | Attempts through this proxy; HTTP 5xx counts as failure | Phase 3 |
+| `requests_sent` | int | Total attempts through this proxy (`success_count + failure_count`) | Phase 3 |
+| `consecutive_failures` | int | Current attempt failure streak | Phase 3 |
 | `success_rate` | number 0..1 | Rolling success rate | Phase 4 |
-| `active_connections` | int | In-flight requests through this proxy | Phase 3 |
+| `active_connections` | int | In-flight requests through this proxy; reservation released after every completion path | Phase 3 |
 | `circuit_state` | string | `CLOSED`, `OPEN` or `HALF_OPEN` | Phase 4 |
 | `circuit_open_count` | int | Times the circuit has opened | Phase 4 |
 | `last_probe_unix_ms` | int | Time of the last health probe, 0 if none | Phase 4 |
@@ -134,6 +135,7 @@ Units: times in milliseconds unless the name says otherwise; `_unix_ms` is milli
 ```json
 {"stub": true, "timestamp_unix_ms": 1790000000000, "policy": "roundrobin",
  "requests_total": 0, "requests_successful": 0, "requests_failed": 0, "timeouts": 0,
+ "retries": 0, "no_route": 0, "selections": {"random": 0, "roundrobin": 0, "leastconn": 0, "latency": 0, "weighted": 0},
  "requests_per_second": 0.0, "success_rate": 1.0, "active_connections": 0, "worker_count": 0,
  "aimd_limit": 64, "queue_length": {}, "latency_ms": {"p50": 0.0, "p95": 0.0, "p99": 0.0}}
 ```
@@ -143,6 +145,8 @@ Units: times in milliseconds unless the name says otherwise; `_unix_ms` is milli
 | `timestamp_unix_ms` | int | Server time of the snapshot | Phase 1 |
 | `policy` | string | Active routing policy | Phase 1 (value from config) |
 | `requests_total`, `requests_successful`, `requests_failed`, `timeouts` | int | Counters (definitions in D-010) | Phase 1 |
+| `retries`, `no_route` | int | Additional forwarded attempts and requests unable to select an eligible route | Phase 3 |
+| `selections` | object of policy name to int | Number of proxy selections made under each policy | Phase 3 |
 | `requests_per_second` | number | Rate over the last few seconds | Phase 6 |
 | `success_rate` | number 0..1 | successful / (successful + failed); 1.0 when none yet | Phase 1 |
 | `active_connections` | int | Connections currently in use | Phase 5 |
@@ -153,7 +157,7 @@ Units: times in milliseconds unless the name says otherwise; `_unix_ms` is milli
 
 ### `GET /metrics` (Prometheus text, `Content-Type: text/plain; version=0.0.4`)
 
-Metric names (Phase 1 serves real values for the first five and the latency summary): `requests_total`, `requests_successful`, `requests_failed`, `timeouts`, `bad_requests` (counters); `active_connections`, `requests_per_second`, `worker_count`, `queue_length` (gauges, 0 until later phases); `latency_ms{quantile="0.5"|"0.95"|"0.99"}`; per proxy with label `proxy="<id>"`: `proxy_rtt`, `proxy_success_rate`, `proxy_failure_count`. Later phases add metrics by appending; names above stay.
+Metric names include `requests_total`, `requests_successful`, `requests_failed`, `timeouts`, `bad_requests`, `queue_rejected`, `retries`, `no_route` (counters); `routing_selections{policy="..."}`; `active_connections`, `requests_per_second`, `worker_count`, `queue_length`; `latency_ms{quantile="0.5"|"0.95"|"0.99"}`; and per proxy `proxy_requests_total`, `proxy_successes_total`, `proxy_failures_total`, `proxy_active_connections`, `proxy_rtt`, `proxy_success_rate` with label `proxy="<id>"`.
 
 ### `GET /ui`
 
@@ -172,6 +176,10 @@ Other paths return 404 `{"error":"not found"}`.
 
 ## Change history
 
+- 2026-11-01 D-022: Latency policy exploration of eligible proxies without an RTT sample documented.
+- 2026-11-01 D-023: Phase 2 verifier isolates rate/AIMD checks from newly active Phase 3 routing.
+- 2026-11-01 D-021: Retry exhaustion preserves the last transport error mapping.
+- 2026-11-01 D-020: Phase 3 routing policies, eligibility, weighted normalization, RTT smoothing and retry semantics documented.
 - 2026-11-01 D-019: Phase 2 scheduler, async listener ownership handoff, bounded worker pool, AIMD policy and `queue_rejected` counter added.
 - 2026-11-01 D-015: Admin API shapes (`/health`, `/proxies`, `/api/stats`, `/metrics`) defined with the Phase 1 stub.
 - 2026-11-01 D-009: Config keys and CLI defined.
