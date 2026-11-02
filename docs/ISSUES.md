@@ -6,7 +6,7 @@ Bugs, gaps and deferred work that are not fixed yet, with the phase that should 
 - Found in phase: 1   Should be fixed in phase: 5 (decide first)
 - Description: Ingress rejects `https://` URLs and the `CONNECT` method (D-007). A real client sending HTTPS through the gateway would need a CONNECT tunnel.
 - Impact: The handbook scope is HTTP/1.1 forward proxying with absolute URLs, so this is intentional for now. The test-bed proxies already support CONNECT.
-- Status: Open (ask the team whether CONNECT is required before Phase 5 starts)
+- Status: Deferred by D-029 (Phase 5 remains HTTP-only; revisit only if the team later requires HTTPS tunneling)
 
 ## I-002: `docker compose up` and the Docker test bed are not verified
 - Found in phase: 1   Should be fixed in phase: 1 (first action of whoever has Docker), otherwise 2
@@ -41,14 +41,14 @@ Bugs, gaps and deferred work that are not fixed yet, with the phase that should 
 ## I-007: Test-bed proxies and target are Python, so absolute throughput is limited by them
 - Found in phase: 1   Should be fixed in phase: 5 (report), 6
 - Description: D-011. The 5,000 requests per second target is measured against the "local test server"; a Python target and Python proxies may cap the result before the gateway does.
-- Impact: Risk of misattributing a bottleneck. Phase 5 should measure the target alone (for example with `wrk` straight at it) and say which component limits the result; consider an nginx target in Docker if the Python target is the limit.
-- Status: Open
+- Impact: Risk of misattributing a bottleneck. Phase 5 direct measurements show the Python proxy is the limiter; throughput remains below target.
+- Status: Measured in Phase 5; 500 direct-target requests reached 2,705/s and direct proxy requests reached 1,468/s, while epoll gateway reached 1,448/s. See `bench/results/phase5_performance.md`. Consider an nginx target/proxy for future target-isolation work.
 
 ## I-008: Blocking `getaddrinfo` per request in the Phase 1 forwarder
 - Found in phase: 1   Should be fixed in phase: 5
 - Description: The simple forwarder resolves the proxy host name for every request. With IP literals (the local config) this is instant; with Docker names it hits the resolver each time.
 - Impact: Small latency cost in Phase 1 to 4; avoid in the epoll forwarder (resolve once per proxy, cache).
-- Status: Open
+- Status: Fixed in Phase 5 for `EpollForwarder`: proxy addresses are resolved and cached on first use. `SimpleForwarder` retains its reference behavior.
 
 ## I-009: Test-bed verification thresholds are statistical
 - Found in phase: 1   Should be fixed in phase: any
@@ -79,3 +79,9 @@ Bugs, gaps and deferred work that are not fixed yet, with the phase that should 
 - Description: D-010 counts transport success with a status below 500 as a successful request. The authoritative SRS text is not present in this checkout, so it remains UNVERIFIED whether that matches the SRS definition.
 - Impact: Phase 3 routing and proxy health use D-010 consistently; a differing SRS definition may require a later decision and metric adjustment.
 - Status: Open; bring the SRS text to the next team sync.
+
+## I-014: Raw loopback packet capture is unavailable in the current environment
+- Found in phase: 5   Should be fixed in phase: 5 (run on a host with capture capability)
+- Description: `tcpdump -i lo` exits with `Operation not permitted`; `sudo` requires a password that is not available to this session.
+- Impact: The required packet-level SYN/keep-alive trace could not be saved. `bench/results/phase5_reuse_syscalls.txt` provides supplemental evidence: one upstream `connect()` and two requests on the same descriptor.
+- Status: Environment blocker; capture remains to be repeated on a host with `CAP_NET_RAW` or `CAP_NET_ADMIN`.

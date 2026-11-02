@@ -70,6 +70,12 @@ class ProxyHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"  # keep-alive towards the gateway (Phase 5 reuse)
     server_version = "faultproxy/1"
 
+    def setup(self):
+        super().setup()
+        # Avoid Nagle delaying the small response-body write behind an unacknowledged header
+        # segment on persistent gateway-to-proxy connections.
+        self.connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+
     def log_message(self, fmt, *args):
         pass
 

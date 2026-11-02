@@ -1,0 +1,110 @@
+{
+  "testbed": "local Python target and proxies",
+  "created_at": "2026-11-02 15:58:39 IST",
+  "target_direct": {
+    "requests": 500,
+    "requests_per_second": 2705.2585725393633,
+    "all_200": true
+  },
+  "proxy_direct": {
+    "requests": 500,
+    "requests_per_second": 1468.4064812644929,
+    "all_200": true
+  },
+  "proxy_keepalive_direct": {
+    "requests": 1000,
+    "requests_per_second": 1339.3437257768192,
+    "latency_p50_ms": 0.6877749983686954,
+    "latency_p95_ms": 1.1984790035057813
+  },
+  "simple": {
+    "forwarder": "simple",
+    "sequential_requests": 1000,
+    "sequential_latency_p50_ms": 1.344449003227055,
+    "sequential_latency_p95_ms": 2.192889995058067,
+    "parallel": {
+      "requests": 500,
+      "concurrency": 32,
+      "elapsed_seconds": 0.497673947000294,
+      "requests_per_second": 1004.6738492415088,
+      "latency_p50_ms": 30.519961001118645,
+      "latency_p95_ms": 34.3879249994643,
+      "max_active_workers": 0,
+      "peak_gateway_rss_kb": 0
+    },
+    "gateway_overhead_ms": {
+      "p50": 0.026147000000001697,
+      "p95": 0.051459000000000144,
+      "p99": 0.09977700000000311
+    },
+    "upstream_latency_ms": {
+      "p50": 1.147248,
+      "p95": 31.767626,
+      "p99": 33.32574
+    },
+    "upstream_connections_opened": 0,
+    "upstream_connections_reused": 0,
+    "upstream_active_connections": 0,
+    "upstream_idle_connections": 0,
+    "reuse_trace": {
+      "captured": false,
+      "reason": "not requested"
+    }
+  },
+  "epoll": {
+    "forwarder": "epoll",
+    "sequential_requests": 1000,
+    "sequential_latency_p50_ms": 1.148847004515119,
+    "sequential_latency_p95_ms": 1.8631889979587868,
+    "parallel": {
+      "requests": 500,
+      "concurrency": 32,
+      "elapsed_seconds": 0.34542216799309244,
+      "requests_per_second": 1447.5040872593872,
+      "latency_p50_ms": 18.79286299663363,
+      "latency_p95_ms": 33.27997200540267,
+      "max_active_workers": 0,
+      "peak_gateway_rss_kb": 0
+    },
+    "gateway_overhead_ms": {
+      "p50": 0.040677000000000074,
+      "p95": 0.159068,
+      "p99": 0.4942239999999991
+    },
+    "upstream_latency_ms": {
+      "p50": 0.910071,
+      "p95": 24.526593,
+      "p99": 34.594019
+    },
+    "upstream_connections_opened": 32,
+    "upstream_connections_reused": 1468,
+    "upstream_active_connections": 32,
+    "upstream_idle_connections": 32,
+    "reuse_trace": {
+      "captured": false,
+      "reason": "tcpdump: lo: You don't have permission to capture on that device\n(socket: Operation not permitted)"
+    }
+  },
+  "concurrency_1000": {
+    "requests": 1000,
+    "concurrency": 1000,
+    "elapsed_seconds": 1.8182024139969144,
+    "requests_per_second": 549.9937698365068,
+    "latency_p50_ms": 666.28929599392,
+    "latency_p95_ms": 941.4729700001772,
+    "max_active_workers": 718,
+    "peak_gateway_rss_kb": 30408,
+    "observed_upstream_connections": 724,
+    "observed_idle_upstream_connections": 724,
+    "gateway_overhead_ms": {
+      "p50": 0.8131759999999986,
+      "p95": 22.429157000000032,
+      "p99": 24.175444999999968
+    },
+    "upstream_latency_ms": {
+      "p50": 589.829631,
+      "p95": 924.064959,
+      "p99": 957.74159
+    }
+  }
+}

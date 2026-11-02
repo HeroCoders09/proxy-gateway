@@ -26,6 +26,7 @@ class GatewayCore : public HealthReporter {
   bool probe_proxy(ProxyId proxy_id, Forwarder* probe_forwarder = nullptr);
 
  private:
+  HttpResponse handle_impl(Job& job, double& upstream_ms);
   Forwarder& forwarder_;
   MetricsSink& metrics_;
   SteadyClock default_clock_;

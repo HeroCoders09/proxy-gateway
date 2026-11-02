@@ -4,6 +4,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdio>
+#include <memory>
 #include <thread>
 
 #include "admin/admin_server.hpp"
@@ -13,6 +14,7 @@
 #include "gateway/gateway_core.hpp"
 #include "health/health_monitor.hpp"
 #include "ingress/listener.hpp"
+#include "net/epoll_forwarder.hpp"
 #include "net/simple_forwarder.hpp"
 #include "scheduler/domain_scheduler.hpp"
 #include "workers/worker_pool.hpp"
@@ -35,9 +37,6 @@ int main(int argc, char** argv) {
     if (opts.config_path.empty()) throw ConfigError("--config FILE is required (try --help)");
     cfg = load_config_file(opts.config_path);
     apply_cli_overrides(cfg, opts);
-    if (cfg.forwarder != "simple") {
-      throw ConfigError("forwarder '" + cfg.forwarder + "' is not implemented yet (epoll arrives in Phase 5); use 'simple'");
-    }
   } catch (const ConfigError& e) {
     std::fprintf(stderr, "gateway: error: %s\n", e.what());
     return 2;
@@ -52,8 +51,15 @@ int main(int argc, char** argv) {
   ::sigaction(SIGTERM, &sa, nullptr);
 
   Metrics metrics;
-  SimpleForwarder forwarder(cfg.connect_timeout_ms, cfg.response_timeout_ms);
-  GatewayCore core(cfg, forwarder, metrics);
+  std::unique_ptr<Forwarder> forwarder;
+  if (cfg.forwarder == "epoll")
+    forwarder = std::make_unique<EpollForwarder>(cfg.connect_timeout_ms, cfg.response_timeout_ms,
+                                                16u * 1024u * 1024u, cfg.forwarder_pool.max_connections_per_proxy,
+                                                cfg.forwarder_pool.idle_timeout_ms, &metrics,
+                                                cfg.forwarder_pool.max_total_connections);
+  else
+    forwarder = std::make_unique<SimpleForwarder>(cfg.connect_timeout_ms, cfg.response_timeout_ms);
+  GatewayCore core(cfg, *forwarder, metrics);
   HealthMonitor health(cfg, core);
   SteadyClock clock;
   WorkerPool pool(cfg, core, metrics);

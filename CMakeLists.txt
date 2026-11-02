@@ -32,6 +32,7 @@ add_library(pg_core STATIC
   src/ingress/http_response.cpp
   src/ingress/listener.cpp
   src/net/http_response_parser.cpp
+  src/net/epoll_forwarder.cpp
   src/net/simple_forwarder.cpp
   src/admin/admin_server.cpp
   src/gateway/gateway_core.cpp

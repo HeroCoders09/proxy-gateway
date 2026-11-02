@@ -137,6 +137,16 @@ bool GatewayCore::probe_proxy(ProxyId proxy_id, Forwarder* probe_forwarder) {
 }
 
 HttpResponse GatewayCore::handle(Job& job) {
+  const auto started = std::chrono::steady_clock::now();
+  double upstream_ms = 0.0;
+  HttpResponse response = handle_impl(job, upstream_ms);
+  const double elapsed = std::chrono::duration<double, std::milli>(
+      std::chrono::steady_clock::now() - started).count();
+  metrics_.observe_gateway_overhead_ms(std::max(0.0, elapsed - upstream_ms));
+  return response;
+}
+
+HttpResponse GatewayCore::handle_impl(Job& job, double& upstream_ms) {
   constexpr int kMaxRetries = 2;
   int attempts = 0;
   bool has_last_error = false;
@@ -197,6 +207,7 @@ HttpResponse GatewayCore::handle(Job& job) {
       metrics_.inc(Counter::RequestsFailed);
       return make_error_response(502, "proxy attempt failed");
     }
+    upstream_ms += result.latency_ms;
     report(selected.id, result.ok() && result.status < 500, result.latency_ms);
 
     if (!result.ok()) {

@@ -102,7 +102,7 @@ ConnectOutcome connect_with_timeout(const std::string& host, uint16_t port, int 
 
 }  // namespace
 
-std::string build_proxy_request(const Job& job) {
+std::string build_proxy_request(const Job& job, bool keep_alive) {
   const bool default_port = (job.target_port == 80);
   std::string authority = job.target_host;
   if (!default_port) authority += ":" + std::to_string(job.target_port);
@@ -131,7 +131,7 @@ std::string build_proxy_request(const Job& job) {
   if (!job.body.empty() || has_body_method) {
     req += "Content-Length: " + std::to_string(job.body.size()) + "\r\n";
   }
-  req += "Connection: close\r\n\r\n";
+  req += keep_alive ? "Connection: keep-alive\r\n\r\n" : "Connection: close\r\n\r\n";
   req += job.body;
   return req;
 }

@@ -70,17 +70,32 @@ TEST_CASE("admin /api/stats shape and real counters") {
   m.inc(Counter::RequestsSuccessful, 8);
   m.inc(Counter::RequestsFailed, 2);
   m.inc(Counter::Timeouts, 1);
+  m.inc(Counter::ConnectionsOpened, 4);
+  m.inc(Counter::ConnectionsReused, 3);
+  m.inc(Counter::BytesIn, 128);
+  m.add_gauge(Gauge::UpstreamActiveConnections, 2);
+  m.add_gauge(Gauge::UpstreamIdleConnections, 1);
   m.observe_latency_ms(12.5);
+  m.observe_gateway_overhead_ms(7.5);
   AdminServer a(cfg3(), m);
   json j = json::parse(a.route("GET", "/api/stats").body);
   for (const char* key : {"timestamp_unix_ms", "policy", "requests_total", "requests_successful", "requests_failed", "timeouts",
                           "health_probe_successes", "health_probe_failures",
+                          "upstream_connections_opened", "upstream_connections_reused",
+                          "upstream_connect_timeouts", "upstream_response_timeouts", "upstream_bytes_in",
+                          "upstream_bytes_out", "upstream_active_connections", "upstream_idle_connections",
+                          "gateway_overhead_ms",
                           "requests_per_second", "success_rate", "active_connections", "worker_count", "aimd_limit",
                           "queue_length", "latency_ms"}) {
     INFO(key);
     REQUIRE(j.contains(key));
   }
   REQUIRE(j["requests_total"] == 10);
+  REQUIRE(j["upstream_connections_opened"] == 4);
+  REQUIRE(j["upstream_connections_reused"] == 3);
+  REQUIRE(j["upstream_active_connections"] == 2);
+  REQUIRE(j["upstream_idle_connections"] == 1);
+  REQUIRE(j["gateway_overhead_ms"]["p95"].get<double>() == Catch::Approx(7.5));
   REQUIRE(j["success_rate"].get<double>() == Catch::Approx(0.8));
   REQUIRE(j["latency_ms"]["p50"].get<double>() == Catch::Approx(12.5));
   REQUIRE(j["latency_ms"].contains("p95"));
@@ -95,6 +110,10 @@ TEST_CASE("admin /metrics is Prometheus text with the required names") {
   REQUIRE(r.status == 200);
   REQUIRE(r.content_type.find("text/plain") == 0);
   for (const char* name : {"requests_total 3", "requests_successful", "requests_failed", "timeouts", "active_connections",
+                           "upstream_connections_opened_total", "upstream_connections_reused_total",
+                           "upstream_connect_timeouts_total", "upstream_response_timeouts_total",
+                           "upstream_bytes_in_total", "upstream_bytes_out_total", "upstream_active_connections",
+                           "upstream_idle_connections", "gateway_overhead_ms{quantile=\"0.95\"}",
                            "requests_per_second", "proxy_rtt{proxy=\"0\"}", "proxy_success_rate", "proxy_failure_count",
                            "worker_count", "queue_length", "health_probe_successes_total 0", "health_probe_failures_total 0",
                            "proxy_probe_successes_total", "proxy_circuit_open_count", "latency_ms{quantile=\"0.99\"}"}) {

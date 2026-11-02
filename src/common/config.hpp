@@ -54,6 +54,12 @@ struct OutputCfg {
   std::string path;
 };
 
+struct ForwarderPoolCfg {
+  size_t max_connections_per_proxy = 8;
+  size_t max_total_connections = 128;
+  int idle_timeout_ms = 30000;
+};
+
 struct GatewayConfig {
   std::string listen_host = "0.0.0.0";
   uint16_t listen_port = 8000;
@@ -62,7 +68,8 @@ struct GatewayConfig {
 
   std::vector<ProxyEndpoint> proxies;
   std::string policy = "roundrobin";  // random|roundrobin|leastconn|latency|weighted
-  std::string forwarder = "simple";   // simple|epoll (epoll arrives in Phase 5)
+  std::string forwarder = "simple";   // simple|epoll
+  ForwarderPoolCfg forwarder_pool;
 
   RateLimitCfg default_rate;                      // used for domains without an entry
   std::map<std::string, RateLimitCfg> domain_rates;  // lower-case domain -> limit

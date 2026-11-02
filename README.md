@@ -2,7 +2,7 @@
 
 A C++20/Linux gateway that forwards a high volume of HTTP requests through the best proxy in a managed pool (scheduling, rate limiting, AIMD concurrency, routing policies, health checks and circuit breaking, keep-alive connection reuse, metrics and a demo dashboard). Group 1 project, Computer Networks, IIT Roorkee. Built in six serial phases; see the team handbook.
 
-**Status: Phase 1 (foundation and skeleton) done and verified (tag `phase-1-done`). Next: Phase 2. Start every session with `docs/PROJECT_CONTEXT.md`, then the latest `docs/HANDOFF_PHASE_N.md`.**
+**Status: Phase 5 (fast network I/O) is in progress on `phase-5-epoll-io`. Phases 1–4 are complete. Start every session with `docs/PROJECT_CONTEXT.md`, then the latest `docs/HANDOFF_PHASE_N.md`.**
 
 ## Quick start
 
@@ -24,7 +24,7 @@ Run by hand:
 
 ```bash
 testbed/run_local.sh start                         # or: docker compose -f testbed/docker-compose.yml up -d --build
-./build/gateway --config config/gateway.local.json # --policy NAME, --workers N, --help
+./build/gateway --config config/gateway.local.json # set "forwarder": "epoll" to use Phase 5 reactor
 curl -x http://127.0.0.1:8000 http://test.example/products/123
 curl http://127.0.0.1:9000/api/stats               # admin API (stub in Phase 1), localhost only
 testbed/run_local.sh stop
