@@ -22,6 +22,10 @@ class GatewayCore : public HealthReporter {
   HttpResponse handle(Job& job);
 
   std::vector<ProxyState> proxies() const;
+  bool set_policy(const std::string& policy);
+  std::string policy() const;
+  void set_health_aware(bool enabled);
+  bool health_aware() const;
   void report(ProxyId proxy_id, bool success, double rtt_ms) override;
   bool probe_proxy(ProxyId proxy_id, Forwarder* probe_forwarder = nullptr);
 
@@ -35,12 +39,14 @@ class GatewayCore : public HealthReporter {
   int circuit_cooldown_ms_;
   size_t health_window_size_;
   std::string policy_;
+  bool health_aware_ = true;
+  WeightsCfg weights_;
   std::unique_ptr<Router> router_;
   mutable std::mutex proxies_mu_;
   std::vector<ProxyState> proxies_;
   std::unordered_map<ProxyId, RollingStats> rolling_;
   std::unordered_map<ProxyId, std::unique_ptr<CircuitBreaker>> breakers_;
-  std::mutex selection_mu_;
+  mutable std::mutex selection_mu_;
 };
 
 }  // namespace pg

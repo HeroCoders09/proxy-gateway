@@ -2,7 +2,7 @@
 
 A C++20/Linux gateway that forwards a high volume of HTTP requests through the best proxy in a managed pool (scheduling, rate limiting, AIMD concurrency, routing policies, health checks and circuit breaking, keep-alive connection reuse, metrics and a demo dashboard). Group 1 project, Computer Networks, IIT Roorkee. Built in six serial phases; see the team handbook.
 
-**Status: Phase 5 (fast network I/O) is in progress on `phase-5-epoll-io`. Phases 1–4 are complete. Start every session with `docs/PROJECT_CONTEXT.md`, then the latest `docs/HANDOFF_PHASE_N.md`.**
+**Status: Phase 6 implementation is in progress on `phase-6-dashboard`; it is not signed off.** The dashboard, controls, and demo are implemented, but the current worktree has not completed Phase 6 runtime/test validation or two demo rehearsals. Phase 5 performance acceptance also remains open. See `docs/PROGRESS.md` and `docs/HANDOFF_PHASE_6.md` for evidence and remaining work.
 
 ## Quick start
 
@@ -18,7 +18,14 @@ scripts/smoke.sh            # add --local to force the no-Docker test bed
 
 # full Phase 1 acceptance run (invalid configs, 1,000 requests, malformed input, fd leaks, fault behaviour)
 tests/e2e/run_phase1_acceptance.sh
+
+# Phase 6 local dashboard demo (build first, then start the local test bed and gateway)
+./scripts/demo.sh start
+# open http://127.0.0.1:9000/ui
+# stop with ./scripts/demo.sh stop
 ```
+
+The dashboard uses the local fault-injecting test proxies. It can change their bounded delay/failure settings, apply named scenarios, switch routing/rate settings, and start the local load generator or benchmark. These are controlled test-bed proxies, not external commercial proxy providers; provider authentication and arbitrary live endpoint changes are outside the current demo scope. See [`docs/DEMO.md`](docs/DEMO.md) for the walkthrough and [`docs/HANDOFF_PHASE_6.md`](docs/HANDOFF_PHASE_6.md) for validation status.
 
 Run by hand:
 
@@ -26,7 +33,7 @@ Run by hand:
 testbed/run_local.sh start                         # or: docker compose -f testbed/docker-compose.yml up -d --build
 ./build/gateway --config config/gateway.local.json # set "forwarder": "epoll" to use Phase 5 reactor
 curl -x http://127.0.0.1:8000 http://test.example/products/123
-curl http://127.0.0.1:9000/api/stats               # admin API (stub in Phase 1), localhost only
+curl http://127.0.0.1:9000/api/stats               # live admin API, localhost only
 testbed/run_local.sh stop
 ```
 
@@ -38,14 +45,15 @@ testbed/run_local.sh stop
 | `src/ingress/` | client listener (port 8000) and HTTP request parser |
 | `src/net/` | `Forwarder` implementations (simple blocking forwarder in Phase 1; epoll in Phase 5) |
 | `src/gateway/` | glue from `Job` to the forwarder (Phase 1) |
-| `src/admin/` | admin HTTP server (stub in Phase 1; live in Phase 6) |
-| `src/scheduler/ workers/ routing/ health/ output/` | empty until their phases |
+| `src/admin/` | live admin API and dashboard hosting (Phase 6) |
+| `src/output/` | bounded asynchronous CSV/JSONL request-result output (Phase 6) |
+| `src/scheduler/ workers/ routing/ health/` | domain scheduling, AIMD workers, routing policies and health/circuit monitoring |
 | `tests/` | unit tests; `tests/e2e/` end-to-end acceptance scripts |
 | `testbed/` | Docker Compose test bed, local runner, fault-injecting proxies, target server |
 | `config/` | `gateway.json` (example), `gateway.local.json`, `gateway.docker.json` |
 | `docs/` | tracking folder: context, decisions, progress, handoffs, interfaces, issues |
 | `third_party/` | vendored Catch2 and nlohmann/json |
-| `dashboard/`, `bench/` | Phase 6 and per-phase benchmarks |
+| `dashboard/`, `bench/` | live dashboard, load generator and benchmark suites |
 
 ## Ports
 

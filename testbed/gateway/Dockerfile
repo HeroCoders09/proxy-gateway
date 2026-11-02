@@ -8,11 +8,14 @@ WORKDIR /src
 COPY CMakeLists.txt ./
 COPY src ./src
 COPY third_party ./third_party
+COPY dashboard ./dashboard
 COPY tests ./tests
 RUN cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DPG_BUILD_TESTS=OFF && cmake --build build --target gateway
 
 FROM ubuntu:22.04
 COPY --from=build /src/build/gateway /usr/local/bin/gateway
+COPY --from=build /src/dashboard /opt/proxy-gateway/dashboard
+WORKDIR /opt/proxy-gateway
 EXPOSE 8000 9000
 ENTRYPOINT ["gateway"]
 CMD ["--config", "/etc/gateway/gateway.json"]

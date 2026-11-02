@@ -35,6 +35,7 @@ add_library(pg_core STATIC
   src/net/epoll_forwarder.cpp
   src/net/simple_forwarder.cpp
   src/admin/admin_server.cpp
+  src/output/result_writer.cpp
   src/gateway/gateway_core.cpp
   src/routing/policy_router.cpp
   src/scheduler/domain_scheduler.cpp

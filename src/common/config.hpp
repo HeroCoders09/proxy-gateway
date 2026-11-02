@@ -50,7 +50,7 @@ struct IngressCfg {
 };
 
 struct OutputCfg {
-  std::string format = "none";  // none | csv | json (writer arrives in Phase 6)
+  std::string format = "none";  // none | csv | json (JSON Lines)
   std::string path;
 };
 

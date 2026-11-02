@@ -92,14 +92,14 @@ All are `text/plain` with a short fixed message. Proxied responses keep the targ
 
 ## Admin API
 
-Served on `admin.host:admin.port` (default `127.0.0.1:9000`), GET only (other methods get 405 JSON). JSON responses use `Content-Type: application/json`. Phase 1 serves dummy data plus the real Phase 1 counters (`"stub": true`); Phase 6 serves live data under the same field names and sets `"stub": false`. Dashboard code must ignore unknown fields.
+Served on `admin.host:admin.port` (default `127.0.0.1:9000`). Read endpoints return JSON unless noted. Phase 1 served dummy data (`"stub": true`); Phase 6 uses live snapshots (`"stub": false`). Dashboard code must ignore unknown fields.
 
 Units: times in milliseconds unless the name says otherwise; `_unix_ms` is milliseconds since the Unix epoch; rates are per second; `success_rate` is a fraction from 0 to 1.
 
 ### `GET /health`
 
 ```json
-{"status": "ok", "uptime_seconds": 12.5, "version": "0.1.0", "phase": 3, "stub": true}
+{"status": "ok", "uptime_seconds": 12.5, "version": "0.1.0", "phase": 6, "stub": false}
 ```
 
 | Field | Type | Meaning |
@@ -108,12 +108,12 @@ Units: times in milliseconds unless the name says otherwise; `_unix_ms` is milli
 | `uptime_seconds` | number | Seconds since start |
 | `version` | string | Gateway version |
 | `phase` | int | Latest completed phase (informational) |
-| `stub` | bool | true until Phase 6 |
+| `stub` | bool | false when values are live |
 
 ### `GET /proxies`
 
 ```json
-{"stub": true, "proxies": [
+{"stub": false, "proxies": [
   {"id": 0, "host": "127.0.0.1", "port": 3128, "healthy": true, "rtt_ms": 0.0,
    "requests_sent": 0, "success_count": 0, "failure_count": 0, "consecutive_failures": 0, "success_rate": 1.0,
    "active_connections": 0, "circuit_state": "CLOSED", "circuit_open_count": 0, "last_probe_unix_ms": 0,
@@ -141,7 +141,7 @@ Units: times in milliseconds unless the name says otherwise; `_unix_ms` is milli
 ### `GET /api/stats` (dashboard stats endpoint)
 
 ```json
-{"stub": true, "timestamp_unix_ms": 1790000000000, "policy": "roundrobin",
+{"stub": false, "timestamp_unix_ms": 1790000000000, "policy": "roundrobin", "health_aware": true,
  "requests_total": 0, "requests_successful": 0, "requests_failed": 0, "timeouts": 0,
  "health_probe_successes": 0, "health_probe_failures": 0,
  "retries": 0, "no_route": 0, "selections": {"random": 0, "roundrobin": 0, "leastconn": 0, "latency": 0, "weighted": 0},
@@ -151,7 +151,8 @@ Units: times in milliseconds unless the name says otherwise; `_unix_ms` is milli
  "upstream_bytes_in": 0, "upstream_bytes_out": 0,
  "upstream_active_connections": 0, "upstream_idle_connections": 0,
  "gateway_overhead_ms": {"p50": 0.0, "p95": 0.0, "p99": 0.0},
- "aimd_limit": 64, "queue_length": {}, "latency_ms": {"p50": 0.0, "p95": 0.0, "p99": 0.0}}
+ "aimd_limit": 64, "queue_length": {}, "output_rows_dropped": 0,
+ "latency_ms": {"p50": 0.0, "p95": 0.0, "p99": 0.0}}
 ```
 
 | Field | Type | Meaning | Real from |
@@ -163,6 +164,33 @@ Units: times in milliseconds unless the name says otherwise; `_unix_ms` is milli
 | `retries`, `no_route` | int | Additional forwarded attempts and requests unable to select an eligible route | Phase 3 |
 | `selections` | object of policy name to int | Number of proxy selections made under each policy | Phase 3 |
 | `requests_per_second` | number | Rate over the last few seconds | Phase 6 |
+
+### `GET /api/recent`
+
+Returns up to the 50 most recently completed worker requests as `{"requests":[...]}`. Each row contains `timestamp_unix_ms`, a redacted `url` (authority credentials, path and query are omitted), `status`, `proxy` (zero-based ID or -1), `latency_ms` and `success`.
+
+### `GET /api/control/settings?policy=...&rate=...&burst=...&health_aware=true|false`
+
+Local dashboard control endpoint. Accepts one of the five documented routing policies and bounded rate/burst values; applies these and the optional rolling-health eligibility toggle at runtime. OPEN and HALF_OPEN circuits remain ineligible in either mode. The endpoint is available only through the admin listener, which is localhost-bound by default.
+
+### `GET /ui`
+
+Serves the static dashboard from `dashboard/index.html`. The page polls live stats, proxy, health and recent-request endpoints once per second. Fault controls and benchmark launch use the separate localhost-only test-bed control service on port 9100.
+
+### Phase 6 test-bed control service (`127.0.0.1:9100`)
+
+This separate service controls only the bundled local/Docker test bed. Mutations use `POST`; reads use `GET`. Browser origins, when present, are limited to the local dashboard origins.
+
+| Route | Behavior |
+| --- | --- |
+| `GET /proxy-settings` | Current delay/failure settings and availability for fixed proxies `proxy1` through `proxy3` |
+| `POST /proxy-settings?proxy=proxyN&delay_ms=N&fail_pct=P` | Set delay 0–5,000 ms and failure rate 0–100 whole percent on one fixed test proxy |
+| `POST /scenario?name=baseline\|proxy2_delay\|proxy3_failures\|combined` | Apply a named bounded fault preset |
+| `POST /kill-proxy3`, `POST /delay-proxy2`, `POST /restore` | Stop Proxy 3, set 100 ms delay on Proxy 2, or resume Proxy 3 and restore baseline faults |
+| `POST /start-load`, `POST /stop-load`, `GET /load-status` | Start/stop the bundled load generator and read its state |
+| `POST /run-benchmark`, `GET /benchmark-results` | Start the Phase 6 benchmark and poll for status/results |
+
+The dashboard reads each gateway proxy's configured host and port from gateway state. It does not permit arbitrary endpoint edits or configure third-party proxy providers.
 | `success_rate` | number 0..1 | successful / (successful + failed); 1.0 when none yet | Phase 1 |
 | `active_connections` | int | Connections currently in use | Phase 5 |
 | `upstream_connections_opened`, `upstream_connections_reused` | int | Upstream sockets opened and reused by the Phase 5 forwarder | Phase 5 |
@@ -181,7 +209,7 @@ Metric names include `health_probe_successes_total`, `health_probe_failures_tota
 
 ### `GET /ui`
 
-HTML. Phase 1 serves a placeholder page; Phase 6 serves the dashboard from `dashboard/`.
+HTML. Phase 1 served a placeholder page; Phase 6 serves the dashboard from `dashboard/`.
 
 Other paths return 404 `{"error":"not found"}`.
 
@@ -192,6 +220,7 @@ Other paths return 404 `{"error":"not found"}`.
 | Target | `GET /products/<id>` (deterministic page containing the id), `GET /health` (`{"status":"ok"}`), `GET /stats` (request counts per Host header, with per-second counts), `?delay_ms=N` on any path. Host names `test.example`, `site-a.example`, `site-b.example` |
 | Proxy nodes | Forward proxy on 3128 (absolute-URL requests and CONNECT). Response header `X-Proxy-Id`. Faults: env `DELAY_MS`, `FAIL_PCT` (injected failures are HTTP 502 `injected failure`), optional `FAIL_SEED` |
 | Proxy control port | `GET /fault?delay_ms=N&fail_pct=P` sets faults at run time; `GET /fault` shows them |
+| Phase 6 control service | `127.0.0.1:9100`; routes and bounds are listed above; controls the bundled test bed only |
 | Host ports (127.0.0.1) | Docker: target 18080 (env `TARGET_HOST_PORT`), proxies 3128/3129/3130, control 3228/3229/3230. Local mode: target 8081, others the same |
 
 ## Change history
@@ -208,6 +237,11 @@ Other paths return 404 `{"error":"not found"}`.
 - 2026-11-02 D-033: Phase 5 exposes bounded gateway-core overhead percentiles.
 - 2026-11-02 D-034: Test proxy enables TCP_NODELAY for persistent Phase 5 measurements.
 - 2026-11-02 D-035: The global pool cap evicts the oldest idle connection when necessary.
+- 2026-11-02 D-036: Phase 6 bounded background result output and URL redaction are documented.
+- 2026-11-02 D-037: Phase 6 runtime policy and default rate controls are documented.
+- 2026-11-02 D-038: Phase 6 local-only test-bed controls and benchmark routes are documented.
+- 2026-11-02 D-040: Phase 6 health-aware selection experiment toggle retains circuit exclusions.
+- 2026-11-03 D-041: Dashboard can change bounded test-proxy delay and failure injection and apply named presets.
 - 2026-11-02 D-032: Phase 5 adds configurable per-proxy and global pool limits plus idle eviction.
 - 2026-11-02 D-033: Phase 5 reports bounded gateway-core overhead percentiles.
 - 2026-11-02 D-034: Test proxy sets TCP_NODELAY to avoid a persistent-response timing artifact.

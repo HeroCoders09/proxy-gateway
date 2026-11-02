@@ -353,3 +353,63 @@ Append-only. Number decisions D-001, D-002 and so on. Never edit an old entry; s
 - Alternatives considered: Wait for idle timeout (needlessly delays requests); evict any active socket (would interrupt a request).
 - Consequences: An idle proxy connection may be reopened on its next request when the gateway is under global descriptor pressure.
 - Status: Active
+
+## D-036: Keep request-result output off the forwarding path
+- Date: 2026-11-02
+- Phase: 6
+- Made by: Codex
+- Decision: Use a bounded 4,096-row producer queue and a dedicated writer thread for CSV or newline-delimited JSON output. Keep the latest 50 redacted request summaries in memory for the dashboard. Redact URL credentials, path and query before either view or file output; count dropped output rows.
+- Why: Disk latency must not slow forwarding, and the handbook prohibits credentials or response bodies in logs.
+- Alternatives considered: Synchronous per-request file writes; retaining full URLs or response bodies.
+- Consequences: If the writer queue fills or disk writes fail, forwarding continues and `output_rows_dropped` reports loss. JSON output is JSON Lines (one object per row).
+- Status: Active
+
+## D-037: Apply dashboard policy and default rate changes at runtime
+- Date: 2026-11-02
+- Phase: 6
+- Made by: Codex
+- Decision: Expose an allow-listed admin settings route that switches among the five existing routing policies and updates the default domain token-bucket rate and burst under the scheduler lock. Explicit per-domain overrides remain in force.
+- Why: The dashboard controls must change the running gateway while preserving the fixed routing and limiter interfaces.
+- Alternatives considered: Restart the gateway for each setting change; overwrite per-domain limits along with the default.
+- Consequences: The control endpoint is mutating and is exposed only on the admin listener, localhost-bound by default. Policy changes take effect for subsequent routing decisions.
+- Status: Active
+
+## D-038: Keep demo fault controls local and allow-listed
+- Date: 2026-11-02
+- Phase: 6
+- Made by: Codex
+- Decision: Run a separate test-bed control service on `127.0.0.1:9100`. It accepts only fixed kill, delay, restore and benchmark actions; the gateway itself does not execute Docker or shell commands.
+- Why: Demonstration controls must be separate from gateway request handling and must not expose arbitrary process control.
+- Alternatives considered: Letting the gateway execute shell commands; binding control actions on the public ingress interface.
+- Consequences: Local mode uses the test-bed PID file and proxy fault-control ports. Docker mode uses only the fixed container name `proxy3`; browser origins are limited to the local dashboard.
+- Status: Active
+
+## D-039: Add a browser dashboard as an operator surface
+- Date: 2026-11-02
+- Phase: 6
+- Made by: Codex
+- Decision: Add the static `/ui` dashboard as an operator layer over the existing admin/metrics API and test-bed controls. The dashboard does not replace CLI/configuration workflows or change the gateway request protocol.
+- Why: Phase 6 requires live monitoring and demonstration controls, while the supplied Design Document v1.0 describes operator configuration plus metrics/log outputs and CSV/JSON measurements but no browser UI. The SRS source is not present in this checkout.
+- Alternatives considered: Edit the supplied PDF directly (no editable source is available here); change the gateway's HTTP interface to require the dashboard.
+- Consequences: Before final release, update the Design Document source and SRS with the dashboard, local-only admin/control surfaces, charts, controls and benchmark results. Current spec updates are recorded as implementation notes only.
+- Status: Active
+
+## D-040: Compare health-aware and health-unaware selection without bypassing circuits
+- Date: 2026-11-02
+- Phase: 6
+- Made by: Codex
+- Decision: Add a runtime dashboard/benchmark toggle for the rolling `healthy` eligibility flag. OPEN and HALF_OPEN circuit states remain excluded in both modes.
+- Why: The benchmark suite needs to measure health-aware routing under injected proxy faults while preserving the Phase 4 circuit-breaker safety contract.
+- Alternatives considered: Send requests through OPEN circuits (would invalidate Phase 4 behavior); omit the health-awareness comparison.
+- Consequences: `health_aware=false` can send traffic to a proxy marked unhealthy if its circuit remains CLOSED. `/api/stats` reports the current mode.
+- Status: Active
+
+## D-041: Expose live test-proxy fault settings as bounded dashboard controls
+- Date: 2026-11-03
+- Phase: 6
+- Made by: Codex
+- Decision: Let the dashboard set delay (0 to 5,000 ms) and injected failure rate (0 to 100%) for the three fixed test-bed proxies, and provide baseline, delayed-proxy, flaky-proxy and combined presets. The gateway's upstream host/port configuration stays visible but read-only in this form.
+- Why: These controlled fault settings exercise routing, health and circuit recovery without restarting the gateway or editing its deployment config.
+- Alternatives considered: Let browser input select arbitrary process commands or target arbitrary proxy-control ports; mutate the gateway's live proxy endpoint set, which would also require connection-pool and health-monitor lifecycle changes.
+- Consequences: The control service accepts only the three named test proxies and fixed numeric bounds. Per-proxy fault changes apply immediately; opening circuits and recovery remain governed by Phase 4.
+- Status: Active

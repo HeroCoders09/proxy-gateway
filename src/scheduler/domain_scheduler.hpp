@@ -14,6 +14,7 @@ class DomainScheduler final : public RateLimiter {
   DomainScheduler(const GatewayConfig&, MetricsSink&, Clock&, Ready);
   ~DomainScheduler();
   void start(); void stop(); bool enqueue(Job, Fd&, bool); bool try_acquire(const std::string&) override;
+  void set_default_rate(double rate, double burst);
   std::map<std::string, size_t> queue_lengths() const;
  private:
   struct Entry { Job job; Fd client; bool head = false; };
@@ -21,6 +22,7 @@ class DomainScheduler final : public RateLimiter {
   void loop(); void refill(Queue&, TimePoint) const; RateLimitCfg rate_for(const std::string&) const;
   const GatewayConfig& cfg_; MetricsSink& metrics_; Clock& clock_; Ready ready_;
   mutable std::mutex mu_; std::condition_variable cv_; std::map<std::string, Queue> queues_;
+  RateLimitCfg default_rate_;
   bool stopping_ = false; std::thread thread_;
 };
 }

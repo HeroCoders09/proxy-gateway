@@ -32,6 +32,7 @@ enum class Counter : size_t {
   ResponseTimeouts,
   BytesIn,
   BytesOut,
+  OutputRowsDropped,
   kCount
 };
 

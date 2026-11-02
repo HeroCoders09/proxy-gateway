@@ -1,12 +1,11 @@
 #pragma once
-// STUB admin server (Phase 1). Serves the documented JSON shapes from docs/INTERFACES.md with
-// dummy data (plus the real Phase 1 counters), so Phase 6 can build the dashboard against stable
-// field names. Phase 6 replaces the data sources; it must keep the field names.
-// Bound to localhost by default (SRS security requirement).
+// Admin API and static dashboard server. Serves live metrics/proxy snapshots using the stable
+// JSON shapes from docs/INTERFACES.md. Bound to localhost by default (SRS security requirement).
 #include <atomic>
 #include <chrono>
 #include <functional>
 #include <map>
+#include <mutex>
 #include <string>
 #include <thread>
 
@@ -14,6 +13,7 @@
 #include "common/fd.hpp"
 #include "common/metrics.hpp"
 #include "common/types.hpp"
+#include "output/result_writer.hpp"
 
 namespace pg {
 
@@ -22,7 +22,13 @@ struct Phase2Stats { std::map<std::string, size_t> queue_length; int worker_coun
 class AdminServer {
  public:
   AdminServer(const GatewayConfig& cfg, Metrics& metrics, std::function<Phase2Stats()> phase2 = {},
-              std::function<std::vector<ProxyState>()> proxy_snapshot = {});
+              std::function<std::vector<ProxyState>()> proxy_snapshot = {},
+              std::function<std::vector<RequestResult>()> recent_snapshot = {},
+              std::function<std::string()> policy_snapshot = {},
+              std::function<bool(const std::string&)> policy_setter = {},
+              std::function<void(double,double)> rate_setter = {},
+              std::function<bool()> health_aware_snapshot = {},
+              std::function<void(bool)> health_aware_setter = {});
   ~AdminServer();
   AdminServer(const AdminServer&) = delete;
   AdminServer& operator=(const AdminServer&) = delete;
@@ -47,11 +53,22 @@ class AdminServer {
   Metrics& metrics_;
   std::function<Phase2Stats()> phase2_;
   std::function<std::vector<ProxyState>()> proxy_snapshot_;
+  std::function<std::vector<RequestResult>()> recent_snapshot_;
+  std::function<std::string()> policy_snapshot_;
+  std::function<bool(const std::string&)> policy_setter_;
+  std::function<void(double,double)> rate_setter_;
+  std::function<bool()> health_aware_snapshot_;
+  std::function<void(bool)> health_aware_setter_;
   Fd listen_fd_;
   uint16_t bound_port_ = 0;
   std::atomic<bool> stop_{false};
   std::thread thread_;
   std::chrono::steady_clock::time_point started_ = std::chrono::steady_clock::now();
+  mutable std::mutex rate_mu_;
+  mutable uint64_t rate_last_total_ = 0;
+  mutable std::chrono::steady_clock::time_point rate_last_sample_ = std::chrono::steady_clock::now();
+  mutable double requests_per_second_ = 0.0;
+  double update_requests_per_second() const;
 };
 
 }  // namespace pg

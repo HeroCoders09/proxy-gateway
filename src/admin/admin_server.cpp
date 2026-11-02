@@ -8,7 +8,9 @@
 
 #include <cerrno>
 #include <chrono>
+#include <cmath>
 #include <cstring>
+#include <fstream>
 #include <sstream>
 #include <stdexcept>
 
@@ -28,16 +30,20 @@ long long unix_ms_now() {
   return duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
 }
 
-const char* kUiPlaceholder =
-    "<!doctype html><html><head><meta charset=\"utf-8\"><title>Proxy Gateway</title></head>"
-    "<body><h1>Intelligent Concurrent Proxy Gateway</h1>"
-    "<p>Dashboard placeholder (Phase 1). The real dashboard is built in Phase 6.</p></body></html>";
-
 }  // namespace
 
 AdminServer::AdminServer(const GatewayConfig& cfg, Metrics& metrics, std::function<Phase2Stats()> phase2,
-                         std::function<std::vector<ProxyState>()> proxy_snapshot)
-    : cfg_(cfg), metrics_(metrics), phase2_(std::move(phase2)), proxy_snapshot_(std::move(proxy_snapshot)) {}
+                         std::function<std::vector<ProxyState>()> proxy_snapshot,
+                         std::function<std::vector<RequestResult>()> recent_snapshot,
+                         std::function<std::string()> policy_snapshot,
+                         std::function<bool(const std::string&)> policy_setter,
+                         std::function<void(double,double)> rate_setter,
+                         std::function<bool()> health_aware_snapshot,
+                         std::function<void(bool)> health_aware_setter)
+    : cfg_(cfg), metrics_(metrics), phase2_(std::move(phase2)), proxy_snapshot_(std::move(proxy_snapshot)),
+      recent_snapshot_(std::move(recent_snapshot)), policy_snapshot_(std::move(policy_snapshot)),
+      policy_setter_(std::move(policy_setter)), rate_setter_(std::move(rate_setter)),
+      health_aware_snapshot_(std::move(health_aware_snapshot)), health_aware_setter_(std::move(health_aware_setter)) {}
 
 AdminServer::~AdminServer() { stop(); }
 
@@ -138,7 +144,7 @@ AdminServer::Reply AdminServer::route(const std::string& method, const std::stri
 
   if (path == "/health") {
     double uptime = std::chrono::duration<double>(std::chrono::steady_clock::now() - started_).count();
-    return json_reply({{"status", "ok"}, {"uptime_seconds", uptime}, {"version", "0.1.0"}, {"phase", 4}, {"stub", true}});
+    return json_reply({{"status", "ok"}, {"uptime_seconds", uptime}, {"version", "0.1.0"}, {"phase", 6}, {"stub", false}});
   }
 
   if (path == "/proxies") {
@@ -168,7 +174,7 @@ AdminServer::Reply AdminServer::route(const std::string& method, const std::stri
                      {"probe_success_count", live ? state->probe_success_count : 0},
                      {"probe_failure_count", live ? state->probe_failure_count : 0}});
     }
-    return json_reply({{"stub", true}, {"proxies", arr}});
+    return json_reply({{"stub", false}, {"proxies", arr}});
   }
 
   if (path == "/api/stats") {
@@ -179,12 +185,14 @@ AdminServer::Reply AdminServer::route(const std::string& method, const std::stri
     double success_rate = (ok + failed) == 0 ? 1.0 : static_cast<double>(ok) / static_cast<double>(ok + failed);
     Phase2Stats p2 = phase2_ ? phase2_() : Phase2Stats{};
     json queue = p2.queue_length;
-    return json_reply({{"stub", true},
+    return json_reply({{"stub", false},
                        {"timestamp_unix_ms", unix_ms_now()},
-                       {"policy", cfg_.policy},
+                       {"policy", policy_snapshot_ ? policy_snapshot_() : cfg_.policy},
+                       {"health_aware", health_aware_snapshot_ ? health_aware_snapshot_() : true},
                        {"requests_total", metrics_.get(Counter::RequestsTotal)},
                        {"requests_successful", ok},
                        {"requests_failed", failed},
+                       {"output_rows_dropped", metrics_.get(Counter::OutputRowsDropped)},
                        {"timeouts", metrics_.get(Counter::Timeouts)},
                        {"upstream_connections_opened", metrics_.get(Counter::ConnectionsOpened)},
                        {"upstream_connections_reused", metrics_.get(Counter::ConnectionsReused)},
@@ -203,7 +211,7 @@ AdminServer::Reply AdminServer::route(const std::string& method, const std::stri
                                        {"leastconn", metrics_.get(Counter::LeastConnSelections)},
                                        {"latency", metrics_.get(Counter::LatencySelections)},
                                        {"weighted", metrics_.get(Counter::WeightedSelections)}}},
-                       {"requests_per_second", 0.0},
+                       {"requests_per_second", update_requests_per_second()},
                        {"success_rate", success_rate},
                        {"active_connections", p2.active_jobs},
                        {"worker_count", p2.worker_count},
@@ -214,9 +222,57 @@ AdminServer::Reply AdminServer::route(const std::string& method, const std::stri
                                                   {"p99", overhead.p99}}}});
   }
 
+  if (path == "/api/recent") {
+    json rows = json::array();
+    if (recent_snapshot_) for (const auto& row : recent_snapshot_())
+      rows.push_back({{"timestamp_unix_ms", row.timestamp_unix_ms}, {"url", row.url},
+                      {"status", row.status}, {"proxy", row.proxy_id},
+                      {"latency_ms", row.latency_ms}, {"success", row.success}});
+    return json_reply({{"requests", rows}});
+  }
+
+  if (path == "/api/control/settings") {
+    std::map<std::string, std::string> params;
+    const size_t q = target.find('?');
+    if (q != std::string::npos) {
+      std::istringstream in(target.substr(q + 1));
+      std::string item;
+      while (std::getline(in, item, '&')) {
+        const size_t eq = item.find('=');
+        if (eq != std::string::npos) params[item.substr(0, eq)] = item.substr(eq + 1);
+      }
+    }
+    double rate = 0.0, burst = 0.0;
+    try {
+      size_t rate_end = 0, burst_end = 0;
+      rate = std::stod(params.at("rate"), &rate_end); burst = std::stod(params.at("burst"), &burst_end);
+      if (rate_end != params.at("rate").size() || burst_end != params.at("burst").size()) throw std::invalid_argument("trailing characters");
+    }
+    catch (...) { r.status = 400; r.content_type = "application/json"; r.body = json{{"error", "rate and burst must be numbers"}}.dump(); return r; }
+    const std::string policy = params.count("policy") ? params["policy"] : "";
+    bool health_aware = health_aware_snapshot_ ? health_aware_snapshot_() : true;
+    if (params.count("health_aware")) {
+      if (params["health_aware"] != "true" && params["health_aware"] != "false") {
+        r.status=400; r.content_type="application/json"; r.body=json{{"error","health_aware must be true or false"}}.dump(); return r;
+      }
+      health_aware = params["health_aware"] == "true";
+    }
+    if (!is_valid_policy(policy) || !std::isfinite(rate) || !std::isfinite(burst) ||
+        rate < 1 || rate > 1000000 || burst < 1 || burst > 10000000) {
+      r.status = 400; r.content_type = "application/json"; r.body = json{{"error", "invalid policy, rate, or burst"}}.dump(); return r;
+    }
+    if (!policy_setter_ || !policy_setter_(policy) || !rate_setter_) {
+      r.status = 503; r.content_type = "application/json"; r.body = json{{"error", "control unavailable"}}.dump(); return r;
+    }
+    rate_setter_(rate, burst);
+    if (health_aware_setter_) health_aware_setter_(health_aware);
+    return json_reply({{"message", "Settings applied"}, {"policy", policy}, {"rate", rate}, {"burst", burst}, {"health_aware",health_aware}});
+  }
+
   if (path == "/metrics") {
     LatencyPercentiles lp = metrics_.latency_percentiles();
     LatencyPercentiles overhead = metrics_.gateway_overhead_percentiles();
+    const double rps = update_requests_per_second();
     std::ostringstream o;
     o << "# TYPE requests_total counter\nrequests_total " << metrics_.get(Counter::RequestsTotal) << "\n"
       << "# TYPE requests_successful counter\nrequests_successful " << metrics_.get(Counter::RequestsSuccessful) << "\n"
@@ -231,6 +287,7 @@ AdminServer::Reply AdminServer::route(const std::string& method, const std::stri
       << "# TYPE bad_requests counter\nbad_requests " << metrics_.get(Counter::BadRequests) << "\n"
       << "# TYPE queue_rejected counter\nqueue_rejected " << metrics_.get(Counter::QueueRejected) << "\n";
     o << "# TYPE retries counter\nretries " << metrics_.get(Counter::Retries) << "\n"
+      << "# TYPE output_rows_dropped_total counter\noutput_rows_dropped_total " << metrics_.get(Counter::OutputRowsDropped) << "\n"
       << "# TYPE no_route counter\nno_route " << metrics_.get(Counter::NoRoute) << "\n"
       << "# TYPE health_probe_successes_total counter\nhealth_probe_successes_total " << metrics_.get(Counter::ProbeSuccesses) << "\n"
       << "# TYPE health_probe_failures_total counter\nhealth_probe_failures_total " << metrics_.get(Counter::ProbeFailures) << "\n"
@@ -244,7 +301,7 @@ AdminServer::Reply AdminServer::route(const std::string& method, const std::stri
     o << "# TYPE active_connections gauge\nactive_connections " << p2.active_jobs << "\n"
       << "# TYPE upstream_active_connections gauge\nupstream_active_connections " << metrics_.get(Gauge::UpstreamActiveConnections) << "\n"
       << "# TYPE upstream_idle_connections gauge\nupstream_idle_connections " << metrics_.get(Gauge::UpstreamIdleConnections) << "\n"
-      << "# TYPE requests_per_second gauge\nrequests_per_second 0\n"
+      << "# TYPE requests_per_second gauge\nrequests_per_second " << rps << "\n"
       << "# TYPE worker_count gauge\nworker_count " << p2.worker_count << "\n"
       << "# TYPE aimd_limit gauge\naimd_limit " << p2.aimd_limit << "\n"
       << "# TYPE queue_length gauge\n";
@@ -292,7 +349,15 @@ AdminServer::Reply AdminServer::route(const std::string& method, const std::stri
   if (path == "/ui" || path == "/ui/") {
     r.status = 200;
     r.content_type = "text/html; charset=utf-8";
-    r.body = kUiPlaceholder;
+    std::ifstream page("dashboard/index.html", std::ios::binary);
+    if (!page) {
+      r.status = 500;
+      r.body = "Dashboard assets unavailable; run gateway from the project root.";
+      return r;
+    }
+    std::ostringstream body;
+    body << page.rdbuf();
+    r.body = body.str();
     return r;
   }
 
@@ -300,6 +365,19 @@ AdminServer::Reply AdminServer::route(const std::string& method, const std::stri
   r.content_type = "application/json";
   r.body = json{{"error", "not found"}}.dump();
   return r;
+}
+
+double AdminServer::update_requests_per_second() const {
+  const auto now = std::chrono::steady_clock::now();
+  const uint64_t total = metrics_.get(Counter::RequestsTotal);
+  std::lock_guard<std::mutex> lock(rate_mu_);
+  const double seconds = std::chrono::duration<double>(now - rate_last_sample_).count();
+  if (seconds >= 0.25) {
+    requests_per_second_ = static_cast<double>(total - rate_last_total_) / seconds;
+    rate_last_total_ = total;
+    rate_last_sample_ = now;
+  }
+  return requests_per_second_;
 }
 
 }  // namespace pg

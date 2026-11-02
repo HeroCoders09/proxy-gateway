@@ -1,4 +1,4 @@
-// Intelligent Concurrent Proxy Gateway: entry point (Phase 1: foundation and skeleton).
+// Intelligent Concurrent Proxy Gateway entry point.
 #include <signal.h>
 
 #include <atomic>
@@ -16,6 +16,7 @@
 #include "ingress/listener.hpp"
 #include "net/epoll_forwarder.hpp"
 #include "net/simple_forwarder.hpp"
+#include "output/result_writer.hpp"
 #include "scheduler/domain_scheduler.hpp"
 #include "workers/worker_pool.hpp"
 
@@ -51,6 +52,7 @@ int main(int argc, char** argv) {
   ::sigaction(SIGTERM, &sa, nullptr);
 
   Metrics metrics;
+  ResultWriter result_writer(cfg.output, metrics);
   std::unique_ptr<Forwarder> forwarder;
   if (cfg.forwarder == "epoll")
     forwarder = std::make_unique<EpollForwarder>(cfg.connect_timeout_ms, cfg.response_timeout_ms,
@@ -62,19 +64,31 @@ int main(int argc, char** argv) {
   GatewayCore core(cfg, *forwarder, metrics);
   HealthMonitor health(cfg, core);
   SteadyClock clock;
-  WorkerPool pool(cfg, core, metrics);
+  WorkerPool pool(cfg, core, metrics, &result_writer);
   DomainScheduler scheduler(cfg, metrics, clock, [&pool](Job job, Fd client, bool head_only) {
     pool.submit(std::move(job), std::move(client), head_only);
   });
   AdminServer admin(cfg, metrics, [&scheduler, &pool] {
     return Phase2Stats{scheduler.queue_lengths(), pool.thread_count(), pool.aimd_limit(), pool.active_jobs()};
-  }, [&core] { return core.proxies(); });
-  Listener listener(cfg, metrics, [&scheduler](Job job, Fd client, bool head_only) {
-    if (!scheduler.enqueue(std::move(job), client, head_only))
-      write_response(client.get(), make_error_response(503, "domain queue full"), false, 5000);
+  }, [&core] { return core.proxies(); }, [&result_writer] { return result_writer.recent(); },
+     [&core] { return core.policy(); }, [&core](const std::string& p) { return core.set_policy(p); },
+     [&scheduler](double rate, double burst) { scheduler.set_default_rate(rate, burst); },
+     [&core] { return core.health_aware(); }, [&core](bool enabled) { core.set_health_aware(enabled); });
+  Listener listener(cfg, metrics, [&scheduler, &result_writer](Job job, Fd client, bool head_only) {
+    const std::string safe_url = safe_result_url(job.url);
+    if (!scheduler.enqueue(std::move(job), client, head_only)) {
+      auto started = std::chrono::steady_clock::now();
+      HttpResponse response = make_error_response(503, "domain queue full");
+      write_response(client.get(), response, head_only, 5000);
+      const auto now = std::chrono::system_clock::now().time_since_epoch();
+      const double elapsed = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+      result_writer.record({std::chrono::duration_cast<std::chrono::milliseconds>(now).count(),
+                            safe_url, response.status, -1, elapsed, false});
+    }
   });
 
   try {
+    result_writer.start();
     pool.start();
     scheduler.start();
     admin.start();
@@ -85,7 +99,7 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  log_info("gateway listening on " + cfg.listen_host + ":" + std::to_string(listener.port()) + ", admin (stub) on " +
+  log_info("gateway listening on " + cfg.listen_host + ":" + std::to_string(listener.port()) + ", admin on " +
            cfg.admin_host + ":" + std::to_string(admin.port()));
   log_info("routing via " + std::to_string(cfg.proxies.size()) + " configured proxies using policy '" + cfg.policy + "'");
 
@@ -97,5 +111,6 @@ int main(int argc, char** argv) {
   admin.stop();
   scheduler.stop();
   pool.stop();
+  result_writer.stop();
   return 0;
 }
