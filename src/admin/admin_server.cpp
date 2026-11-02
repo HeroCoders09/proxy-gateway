@@ -173,6 +173,7 @@ AdminServer::Reply AdminServer::route(const std::string& method, const std::stri
 
   if (path == "/api/stats") {
     LatencyPercentiles lp = metrics_.latency_percentiles();
+    LatencyPercentiles overhead = metrics_.gateway_overhead_percentiles();
     uint64_t ok = metrics_.get(Counter::RequestsSuccessful);
     uint64_t failed = metrics_.get(Counter::RequestsFailed);
     double success_rate = (ok + failed) == 0 ? 1.0 : static_cast<double>(ok) / static_cast<double>(ok + failed);
@@ -185,6 +186,14 @@ AdminServer::Reply AdminServer::route(const std::string& method, const std::stri
                        {"requests_successful", ok},
                        {"requests_failed", failed},
                        {"timeouts", metrics_.get(Counter::Timeouts)},
+                       {"upstream_connections_opened", metrics_.get(Counter::ConnectionsOpened)},
+                       {"upstream_connections_reused", metrics_.get(Counter::ConnectionsReused)},
+                       {"upstream_connect_timeouts", metrics_.get(Counter::ConnectTimeouts)},
+                       {"upstream_response_timeouts", metrics_.get(Counter::ResponseTimeouts)},
+                       {"upstream_bytes_in", metrics_.get(Counter::BytesIn)},
+                       {"upstream_bytes_out", metrics_.get(Counter::BytesOut)},
+                       {"upstream_active_connections", metrics_.get(Gauge::UpstreamActiveConnections)},
+                       {"upstream_idle_connections", metrics_.get(Gauge::UpstreamIdleConnections)},
                        {"health_probe_successes", metrics_.get(Counter::ProbeSuccesses)},
                        {"health_probe_failures", metrics_.get(Counter::ProbeFailures)},
                        {"retries", metrics_.get(Counter::Retries)},
@@ -200,16 +209,25 @@ AdminServer::Reply AdminServer::route(const std::string& method, const std::stri
                        {"worker_count", p2.worker_count},
                        {"aimd_limit", p2.aimd_limit},
                        {"queue_length", queue},
-                       {"latency_ms", {{"p50", lp.p50}, {"p95", lp.p95}, {"p99", lp.p99}}}});
+                       {"latency_ms", {{"p50", lp.p50}, {"p95", lp.p95}, {"p99", lp.p99}}},
+                       {"gateway_overhead_ms", {{"p50", overhead.p50}, {"p95", overhead.p95},
+                                                  {"p99", overhead.p99}}}});
   }
 
   if (path == "/metrics") {
     LatencyPercentiles lp = metrics_.latency_percentiles();
+    LatencyPercentiles overhead = metrics_.gateway_overhead_percentiles();
     std::ostringstream o;
     o << "# TYPE requests_total counter\nrequests_total " << metrics_.get(Counter::RequestsTotal) << "\n"
       << "# TYPE requests_successful counter\nrequests_successful " << metrics_.get(Counter::RequestsSuccessful) << "\n"
       << "# TYPE requests_failed counter\nrequests_failed " << metrics_.get(Counter::RequestsFailed) << "\n"
       << "# TYPE timeouts counter\ntimeouts " << metrics_.get(Counter::Timeouts) << "\n"
+      << "# TYPE upstream_connections_opened_total counter\nupstream_connections_opened_total " << metrics_.get(Counter::ConnectionsOpened) << "\n"
+      << "# TYPE upstream_connections_reused_total counter\nupstream_connections_reused_total " << metrics_.get(Counter::ConnectionsReused) << "\n"
+      << "# TYPE upstream_connect_timeouts_total counter\nupstream_connect_timeouts_total " << metrics_.get(Counter::ConnectTimeouts) << "\n"
+      << "# TYPE upstream_response_timeouts_total counter\nupstream_response_timeouts_total " << metrics_.get(Counter::ResponseTimeouts) << "\n"
+      << "# TYPE upstream_bytes_in_total counter\nupstream_bytes_in_total " << metrics_.get(Counter::BytesIn) << "\n"
+      << "# TYPE upstream_bytes_out_total counter\nupstream_bytes_out_total " << metrics_.get(Counter::BytesOut) << "\n"
       << "# TYPE bad_requests counter\nbad_requests " << metrics_.get(Counter::BadRequests) << "\n"
       << "# TYPE queue_rejected counter\nqueue_rejected " << metrics_.get(Counter::QueueRejected) << "\n";
     o << "# TYPE retries counter\nretries " << metrics_.get(Counter::Retries) << "\n"
@@ -224,6 +242,8 @@ AdminServer::Reply AdminServer::route(const std::string& method, const std::stri
       o << "routing_selections{policy=\"" << name << "\"} " << metrics_.get(counter) << "\n";
     Phase2Stats p2 = phase2_ ? phase2_() : Phase2Stats{};
     o << "# TYPE active_connections gauge\nactive_connections " << p2.active_jobs << "\n"
+      << "# TYPE upstream_active_connections gauge\nupstream_active_connections " << metrics_.get(Gauge::UpstreamActiveConnections) << "\n"
+      << "# TYPE upstream_idle_connections gauge\nupstream_idle_connections " << metrics_.get(Gauge::UpstreamIdleConnections) << "\n"
       << "# TYPE requests_per_second gauge\nrequests_per_second 0\n"
       << "# TYPE worker_count gauge\nworker_count " << p2.worker_count << "\n"
       << "# TYPE aimd_limit gauge\naimd_limit " << p2.aimd_limit << "\n"
@@ -234,6 +254,10 @@ AdminServer::Reply AdminServer::route(const std::string& method, const std::stri
       << "latency_ms{quantile=\"0.5\"} " << lp.p50 << "\n"
       << "latency_ms{quantile=\"0.95\"} " << lp.p95 << "\n"
       << "latency_ms{quantile=\"0.99\"} " << lp.p99 << "\n"
+      << "# TYPE gateway_overhead_ms summary\n"
+      << "gateway_overhead_ms{quantile=\"0.5\"} " << overhead.p50 << "\n"
+      << "gateway_overhead_ms{quantile=\"0.95\"} " << overhead.p95 << "\n"
+      << "gateway_overhead_ms{quantile=\"0.99\"} " << overhead.p99 << "\n"
       << "# TYPE proxy_rtt gauge\n# TYPE proxy_rolling_rtt gauge\n# TYPE proxy_success_rate gauge\n# TYPE proxy_failure_count counter\n"
       << "# TYPE proxy_consecutive_failures gauge\n# TYPE proxy_circuit_open_count counter\n# TYPE proxy_last_probe_unix_ms gauge\n"
       << "# TYPE proxy_probe_successes_total counter\n# TYPE proxy_probe_failures_total counter\n";

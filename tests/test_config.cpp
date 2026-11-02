@@ -47,6 +47,7 @@ TEST_CASE("full config round trip of values") {
     "admin":{"port":9123},
     "proxies":[{"host":"a","port":1},{"host":"b","port":2}],
     "policy":"weighted","forwarder":"simple",
+    "forwarder_pool":{"max_connections_per_proxy":12,"max_total_connections":40,"idle_timeout_ms":25000},
     "rate_limits":{"default":{"rate":10,"burst":20},"Site-A.Example":{"rate":5}},
     "queue_limit":77,
     "workers":{"min":2,"max":9,"alpha":2,"beta":0.7},
@@ -58,6 +59,9 @@ TEST_CASE("full config round trip of values") {
   REQUIRE(c.listen_port == 8123);
   REQUIRE(c.admin_port == 9123);
   REQUIRE(c.policy == "weighted");
+  REQUIRE(c.forwarder_pool.max_connections_per_proxy == 12);
+  REQUIRE(c.forwarder_pool.max_total_connections == 40);
+  REQUIRE(c.forwarder_pool.idle_timeout_ms == 25000);
   REQUIRE(c.queue_limit == 77);
   REQUIRE(c.workers.max == 9);
   REQUIRE(c.workers.beta == Catch::Approx(0.7));
@@ -85,6 +89,7 @@ TEST_CASE("invalid configs are rejected with a clear message") {
   REQUIRE(expect_error(R"({"proxies":[{"host":"p","port":80}],"polcy":"x"})").find("unknown key 'polcy'") != std::string::npos);
   REQUIRE(expect_error(R"({"proxies":[{"host":"p","port":80}],"policy":"fastest"})").find("policy must be one of") != std::string::npos);
   REQUIRE(expect_error(R"({"proxies":[{"host":"p","port":80}],"forwarder":"magic"})").find("forwarder must be") != std::string::npos);
+  REQUIRE(expect_error(R"({"proxies":[{"host":"p","port":80}],"forwarder_pool":{"max_connections_per_proxy":10,"max_total_connections":5}})").find("must not exceed") != std::string::npos);
   REQUIRE(expect_error(R"({"proxies":[{"host":"p","port":80}],"workers":{"beta":1.5}})").find("workers.beta") != std::string::npos);
   REQUIRE(expect_error(R"({"proxies":[{"host":"p","port":80}],"workers":{"beta":0}})").find("workers.beta") != std::string::npos);
   REQUIRE(expect_error(R"({"proxies":[{"host":"p","port":80}],"workers":{"min":10,"max":5}})").find("workers.max") != std::string::npos);

@@ -96,6 +96,14 @@ void validate_config(const GatewayConfig& c) {
   if (c.forwarder != "simple" && c.forwarder != "epoll") {
     fail("forwarder must be 'simple' or 'epoll'; got '" + c.forwarder + "'");
   }
+  if (c.forwarder_pool.max_connections_per_proxy < 1 || c.forwarder_pool.max_connections_per_proxy > 4096)
+    fail("forwarder_pool.max_connections_per_proxy must be between 1 and 4096");
+  if (c.forwarder_pool.max_total_connections < 1 || c.forwarder_pool.max_total_connections > 16384)
+    fail("forwarder_pool.max_total_connections must be between 1 and 16384");
+  if (c.forwarder_pool.max_connections_per_proxy > c.forwarder_pool.max_total_connections)
+    fail("forwarder_pool.max_connections_per_proxy must not exceed max_total_connections");
+  if (c.forwarder_pool.idle_timeout_ms < 1)
+    fail("forwarder_pool.idle_timeout_ms must be >= 1");
   if (!(c.default_rate.rate > 0) || !(c.default_rate.burst > 0)) {
     fail("rate_limits.default rate and burst must be > 0");
   }
@@ -140,7 +148,7 @@ GatewayConfig parse_config_text(const std::string& text) {
     throw ConfigError(std::string("config: invalid JSON: ") + e.what());
   }
   check_keys(j, "", {"listen", "admin", "proxies", "policy", "forwarder", "rate_limits", "queue_limit",
-                     "workers", "timeouts", "circuit", "weights", "ingress", "output"});
+                     "forwarder_pool", "workers", "timeouts", "circuit", "weights", "ingress", "output"});
 
   GatewayConfig c;
 
@@ -173,6 +181,15 @@ GatewayConfig parse_config_text(const std::string& text) {
 
   c.policy = read_string(j, "policy", "", c.policy);
   c.forwarder = read_string(j, "forwarder", "", c.forwarder);
+  if (const json* o = read_object(j, "forwarder_pool")) {
+    check_keys(*o, "forwarder_pool", {"max_connections_per_proxy", "max_total_connections", "idle_timeout_ms"});
+    c.forwarder_pool.max_connections_per_proxy = static_cast<size_t>(read_int(
+        *o, "max_connections_per_proxy", "forwarder_pool", c.forwarder_pool.max_connections_per_proxy, 1, 4096));
+    c.forwarder_pool.max_total_connections = static_cast<size_t>(read_int(
+        *o, "max_total_connections", "forwarder_pool", c.forwarder_pool.max_total_connections, 1, 16384));
+    c.forwarder_pool.idle_timeout_ms = static_cast<int>(read_int(
+        *o, "idle_timeout_ms", "forwarder_pool", c.forwarder_pool.idle_timeout_ms, 1, 3600000));
+  }
 
   if (const json* o = read_object(j, "rate_limits")) {
     if (!o->is_object()) fail("rate_limits must be an object");

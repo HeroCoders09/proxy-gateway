@@ -27,7 +27,7 @@ Code locations: structs in `src/common/types.hpp`, interfaces in `src/common/int
 | `Router` | `std::optional<ProxyId> select(const Job& job, const std::vector<ProxyState>& table)`. Returns `nullopt` when no route is available. `PolicyRouter` implements all five policies; candidates must be healthy, CLOSED, and not in `job.tried_proxies`. OPEN and HALF_OPEN are excluded; HALF_OPEN is reserved for its single monitor probe (D-024). Latency mode explores eligible proxies without a sample before choosing minimum measured RTT (D-022) |
 | `RateLimiter` | `bool try_acquire(const std::string& domain)`. Must use a `Clock` that tests can fake. Phase 2 |
 | `HealthReporter` | `void report(ProxyId proxy_id, bool success, double rtt_ms)`. `GatewayCore` implements it: each real attempt updates traffic counts, rolling health and RTT, consecutive failures and circuit state. Probe reports update rolling health and separate probe counts |
-| `MetricsSink` | `void inc(Counter c, uint64_t n = 1)`, `void observe_latency_ms(double ms)`. Thread-safe; the only way modules write measurements. Phase 2 to 5 add counters to the `Counter` enum (append before `kCount`; never reorder) |
+| `MetricsSink` | `void inc(Counter c, uint64_t n = 1)`, `void add_gauge(Gauge g, int64_t delta)`, `void observe_latency_ms(double ms)` | Thread-safe; the only way modules write measurements. New counters and gauges append before their respective `kCount` values; never reorder |
 | `Clock` | `TimePoint now() const` on `std::chrono::steady_clock`. `SteadyClock` for production, `FakeClock` (`advance(d)`) for tests |
 | `Fd` | RAII file-descriptor owner: `get()`, `valid()`, `release()`, `reset(fd)`, move-only. No raw `close()` anywhere else |
 | `Listener` | Legacy `Handler = std::function<HttpResponse(Job&)>` remains for tests. Phase 2 production uses `AsyncHandler = std::function<void(Job, Fd, bool head_only)>`, transferring the descriptor to the scheduler; `start()`, `stop()`, `port()` |
@@ -48,7 +48,10 @@ Strict: unknown keys, wrong types and out-of-range values are rejected (exit cod
 | `admin.port` | int 1-65535 | 9000 | Admin and dashboard port |
 | `proxies` | array of `{host: string, port: int}` | required, at least 1 | Proxy pool; `ProxyId` is the array index. Phase 1 uses element 0 only |
 | `policy` | `random`, `roundrobin`, `leastconn`, `latency`, `weighted` | `roundrobin` | Active routing policy. Overridden by `--policy` |
-| `forwarder` | `simple`, `epoll` | `simple` | Forwarder implementation. `epoll` is rejected at start-up until Phase 5 |
+| `forwarder` | `simple`, `epoll` | `simple` | Forwarder implementation. `epoll` selects the non-blocking reactor with a bounded keep-alive pool (D-030) |
+| `forwarder_pool.max_connections_per_proxy` | int 1-4096 | 8 | Max open upstream sockets for one proxy (epoll only) |
+| `forwarder_pool.max_total_connections` | int 1-16384 | 128 | Max open upstream sockets across the gateway; must be at least the per-proxy limit |
+| `forwarder_pool.idle_timeout_ms` | int 1-3,600,000 | 30000 | Idle keep-alive socket eviction timeout |
 | `rate_limits.default.rate` | number > 0 | 1000 | Token refill per second for domains with no entry (later: Phase 2) |
 | `rate_limits.default.burst` | number > 0 | 2000 | Bucket capacity B |
 | `rate_limits.<domain>.rate` / `.burst` | number > 0 | inherit default | Per-domain override; domain names are lower-cased |
@@ -143,6 +146,11 @@ Units: times in milliseconds unless the name says otherwise; `_unix_ms` is milli
  "health_probe_successes": 0, "health_probe_failures": 0,
  "retries": 0, "no_route": 0, "selections": {"random": 0, "roundrobin": 0, "leastconn": 0, "latency": 0, "weighted": 0},
  "requests_per_second": 0.0, "success_rate": 1.0, "active_connections": 0, "worker_count": 0,
+ "upstream_connections_opened": 0, "upstream_connections_reused": 0,
+ "upstream_connect_timeouts": 0, "upstream_response_timeouts": 0,
+ "upstream_bytes_in": 0, "upstream_bytes_out": 0,
+ "upstream_active_connections": 0, "upstream_idle_connections": 0,
+ "gateway_overhead_ms": {"p50": 0.0, "p95": 0.0, "p99": 0.0},
  "aimd_limit": 64, "queue_length": {}, "latency_ms": {"p50": 0.0, "p95": 0.0, "p99": 0.0}}
 ```
 
@@ -157,14 +165,19 @@ Units: times in milliseconds unless the name says otherwise; `_unix_ms` is milli
 | `requests_per_second` | number | Rate over the last few seconds | Phase 6 |
 | `success_rate` | number 0..1 | successful / (successful + failed); 1.0 when none yet | Phase 1 |
 | `active_connections` | int | Connections currently in use | Phase 5 |
+| `upstream_connections_opened`, `upstream_connections_reused` | int | Upstream sockets opened and reused by the Phase 5 forwarder | Phase 5 |
+| `upstream_connect_timeouts`, `upstream_response_timeouts` | int | Phase 5 connect and response deadline expirations | Phase 5 |
+| `upstream_bytes_in`, `upstream_bytes_out` | int | Bytes received from and sent to upstream proxies | Phase 5 |
+| `upstream_active_connections`, `upstream_idle_connections` | int | Live upstream sockets and idle pooled sockets | Phase 5 |
 | `worker_count` | int | Worker threads | Phase 2 |
 | `aimd_limit` | int | Current concurrency limit C (Phase 1 shows `workers.max`) | Phase 2 |
 | `queue_length` | object | Domain name to queued jobs, for example `{"site-a.example": 12}` | Phase 2 |
 | `latency_ms.p50/p95/p99` | number | Percentiles over the latest 4096 samples (D-016) | Phase 1 |
+| `gateway_overhead_ms.p50/p95/p99` | number | Percentiles of GatewayCore time excluding summed forwarder attempt time | Phase 5 |
 
 ### `GET /metrics` (Prometheus text, `Content-Type: text/plain; version=0.0.4`)
 
-Metric names include `health_probe_successes_total`, `health_probe_failures_total`, and per proxy `proxy_probe_successes_total`, `proxy_probe_failures_total`, `proxy_consecutive_failures`, `proxy_circuit_open_count`, `proxy_last_probe_unix_ms`, `proxy_rolling_rtt`; existing request and routing metrics remain available.
+Metric names include `health_probe_successes_total`, `health_probe_failures_total`, per proxy `proxy_probe_successes_total`, `proxy_probe_failures_total`, `proxy_consecutive_failures`, `proxy_circuit_open_count`, `proxy_last_probe_unix_ms`, `proxy_rolling_rtt`, Phase 5 upstream connection, byte and timeout counters, and the `gateway_overhead_ms` summary; existing request and routing metrics remain available.
 
 ### `GET /ui`
 
@@ -188,6 +201,16 @@ Other paths return 404 `{"error":"not found"}`.
 - 2026-11-02 D-024 to D-026: Phase 4 rolling health, probe/circuit behavior, separate probe counters and bounded per-proxy probe threads documented.
 - 2026-11-02 D-027: Routing health uses a four-outcome tail so recovered proxies can re-enter promptly while the longer rolling metric remains stable.
 - 2026-11-02 D-028: Phase 2 verifier waits for health recovery and raises its test-only circuit threshold to keep the AIMD check independent.
+- 2026-11-02 D-029: Phase 5 keeps the existing HTTP-only ingress contract and defers CONNECT tunneling.
+- 2026-11-02 D-030: Phase 5 uses one level-triggered reactor and a bounded per-proxy keep-alive pool.
+- 2026-11-02 D-031: Phase 5 adds upstream pool gauges and connection/byte/timeout metrics through `MetricsSink`.
+- 2026-11-02 D-032: Phase 5 makes pool bounds configurable with a global socket cap.
+- 2026-11-02 D-033: Phase 5 exposes bounded gateway-core overhead percentiles.
+- 2026-11-02 D-034: Test proxy enables TCP_NODELAY for persistent Phase 5 measurements.
+- 2026-11-02 D-035: The global pool cap evicts the oldest idle connection when necessary.
+- 2026-11-02 D-032: Phase 5 adds configurable per-proxy and global pool limits plus idle eviction.
+- 2026-11-02 D-033: Phase 5 reports bounded gateway-core overhead percentiles.
+- 2026-11-02 D-034: Test proxy sets TCP_NODELAY to avoid a persistent-response timing artifact.
 - 2026-11-01 D-021: Retry exhaustion preserves the last transport error mapping.
 - 2026-11-01 D-020: Phase 3 routing policies, eligibility, weighted normalization, RTT smoothing and retry semantics documented.
 - 2026-11-01 D-019: Phase 2 scheduler, async listener ownership handoff, bounded worker pool, AIMD policy and `queue_rejected` counter added.

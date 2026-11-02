@@ -1,0 +1,30 @@
+144551 15:58:58.047949 epoll_wait(4, [{events=EPOLLIN, data={u32=5, u64=5}}], 64, 100) = 1
+144551 15:58:58.048267 connect(6, {sa_family=AF_INET, sin_port=htons(34555), sin_addr=inet_addr("127.0.0.1")}, 16) = -1 EINPROGRESS (Operation now in progress)
+144551 15:58:58.049057 epoll_wait(4, [{events=EPOLLOUT, data={u32=6, u64=6}}], 64, 100) = 1
+144551 15:58:58.049144 sendto(6, "GET http://test.example/products"..., 93, MSG_NOSIGNAL, NULL, 0) = 93
+144550 15:58:58.049263 recvfrom(7,  <unfinished ...>
+144551 15:58:58.049287 epoll_wait(4,  <unfinished ...>
+144550 15:58:58.049296 <... recvfrom resumed>"GET http://test.example/products"..., 1024, 0, NULL, NULL) = 93
+144550 15:58:58.049418 sendto(7, "HTTP/1.1 200 OK\r\nContent-Length:"..., 64, MSG_NOSIGNAL, NULL, 0 <unfinished ...>
+144551 15:58:58.049476 <... epoll_wait resumed>[{events=EPOLLIN, data={u32=6, u64=6}}], 64, 100) = 1
+144550 15:58:58.049495 <... sendto resumed>) = 64
+144551 15:58:58.049505 recvfrom(6, "HTTP/1.1 200 OK\r\nContent-Length:"..., 16384, 0, NULL, NULL) = 64
+144551 15:58:58.049548 recvfrom(6, 0x7cb1555f9910, 16384, 0, NULL, NULL) = -1 EAGAIN (Resource temporarily unavailable)
+144551 15:58:58.049644 epoll_wait(4, [{events=EPOLLIN, data={u32=5, u64=5}}], 64, 100) = 1
+144551 15:58:58.049721 recvfrom(6, 0x7cb1555fd7f0, 1, MSG_PEEK|MSG_DONTWAIT, NULL, NULL) = -1 EAGAIN (Resource temporarily unavailable)
+144551 15:58:58.049787 epoll_wait(4, [{events=EPOLLOUT, data={u32=6, u64=6}}], 64, 100) = 1
+144551 15:58:58.049825 sendto(6, "GET http://test.example/products"..., 93, MSG_NOSIGNAL, NULL, 0) = 93
+144550 15:58:58.049877 recvfrom(7,  <unfinished ...>
+144551 15:58:58.049898 epoll_wait(4,  <unfinished ...>
+144550 15:58:58.049907 <... recvfrom resumed>"GET http://test.example/products"..., 1024, 0, NULL, NULL) = 93
+144550 15:58:58.049931 sendto(7, "HTTP/1.1 200 OK\r\nContent-Length:"..., 64, MSG_NOSIGNAL, NULL, 0 <unfinished ...>
+144551 15:58:58.049968 <... epoll_wait resumed>[{events=EPOLLIN, data={u32=6, u64=6}}], 64, 100) = 1
+144550 15:58:58.049981 <... sendto resumed>) = 64
+144551 15:58:58.049991 recvfrom(6, "HTTP/1.1 200 OK\r\nContent-Length:"..., 16384, 0, NULL, NULL) = 64
+144551 15:58:58.050030 recvfrom(6, 0x7cb1555f9910, 16384, 0, NULL, NULL) = -1 EAGAIN (Resource temporarily unavailable)
+144551 15:58:58.050110 epoll_wait(4, [{events=EPOLLIN|EPOLLRDHUP, data={u32=6, u64=6}}], 64, 100) = 1
+144551 15:58:58.055335 epoll_wait(4,  <unfinished ...>
+144550 15:58:58.055386 +++ exited with 0 +++
+144551 15:58:58.055413 <... epoll_wait resumed>[{events=EPOLLIN, data={u32=5, u64=5}}], 64, 100) = 1
+144551 15:58:58.055535 +++ exited with 0 +++
+144549 15:58:58.056179 +++ exited with 0 +++

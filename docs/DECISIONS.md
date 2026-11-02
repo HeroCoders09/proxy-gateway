@@ -283,3 +283,73 @@ Append-only. Number decisions D-001, D-002 and so on. Never edit an old entry; s
 - Alternatives considered: Change production health/circuit behavior; accept no-route failures as AIMD recovery; disable health in production configuration. All would weaken the Phase 4 acceptance behavior or the verifier's stated purpose.
 - Consequences: The Phase 2 verification script still checks only rate isolation and AIMD, with health recovery allowed to complete before the AIMD success window.
 - Status: Active
+
+## D-029: Keep Phase 5 ingress HTTP-only; defer CONNECT tunneling
+- Date: 2026-11-02
+- Phase: 5
+- Made by: Gourav
+- Decision: Phase 5 implements non-blocking forward-proxy requests for the existing accepted HTTP methods and absolute `http://` URLs. HTTPS and the CONNECT method remain unsupported at ingress, as defined by D-007.
+- Why: Phase 5's performance goal is event-driven forwarding and upstream keep-alive reuse; the team confirmed the existing HTTP-only ingress contract for this phase.
+- Alternatives considered: Add CONNECT tunnel parsing and byte-stream tunneling, which would expand the ingress and response model beyond the current `Forwarder` contract.
+- Consequences: I-001 is deferred rather than a Phase 5 deliverable. No changes to ingress semantics or the `Forwarder` result interface are required for CONNECT.
+- Status: Active
+
+## D-030: Phase 5 epoll reactor and connection-pool bounds
+- Date: 2026-11-02
+- Phase: 5
+- Made by: Codex
+- Decision: Use one dedicated level-triggered epoll reactor per `EpollForwarder`. Keep at most 8 upstream sockets per proxy (including active and idle sockets), reuse one idle HTTP/1.1 connection at a time, and evict an idle connection after 30 seconds. All sockets are non-blocking, close-on-exec and set `TCP_NODELAY`.
+- Why: Level-triggered readiness simplifies partial read/write handling and stale-socket detection. One fixed reactor can advance many requests without creating a thread per connection. A bounded per-proxy pool keeps the descriptor count finite while allowing parallel requests.
+- Alternatives considered: Edge-triggered readiness (requires draining every state transition perfectly); an event loop per request (does not share keep-alive sockets); unbounded pooling (risks descriptor exhaustion).
+- Consequences: With at most 16 configured proxies, the forwarder can own at most 128 upstream sockets, in addition to its epoll and wake descriptors. Idle timeout and per-proxy limit are constructor defaults in this phase; configuration keys can be considered later if operational tuning requires them.
+- Status: Active
+
+## D-031: Add gauges to the shared metrics sink for upstream pool state
+- Date: 2026-11-02
+- Phase: 5
+- Made by: Codex
+- Decision: Extend `MetricsSink` with signed gauge deltas and add Phase 5 counters for opened/reused upstream sockets, timeout classes and upstream bytes. Expose active and idle upstream socket gauges in the existing admin responses.
+- Why: Pool state can rise and fall, so counters alone cannot report currently open and idle connections. The metrics must come from the same reactor that owns those descriptors.
+- Alternatives considered: Keep private reactor statistics (not visible to `/api/stats` or Prometheus); count every gauge as a monotonic counter (does not describe current state).
+- Consequences: Any future `MetricsSink` implementation must implement `add_gauge`; the shared metrics interface and admin schema grow additively.
+- Status: Active
+
+## D-032: Make Phase 5 pool bounds configurable with a global cap
+- Date: 2026-11-02
+- Phase: 5
+- Made by: Codex
+- Decision: Add `forwarder_pool.max_connections_per_proxy` (default 8), `forwarder_pool.max_total_connections` (default 128), and `forwarder_pool.idle_timeout_ms` (default 30000). Enforce both per-proxy and global socket caps.
+- Why: The fixed defaults support normal workloads, while the handbook requires measuring concurrency up to 1,000. Making pool bounds explicit allows controlled load tests without removing descriptor safety.
+- Alternatives considered: Raising the defaults (unnecessarily opens many descriptors for ordinary deployments); leave the benchmark target untestable with a fixed eight-per-proxy limit.
+- Consequences: Strict config parsing validates each bound and requires the global cap to be at least the per-proxy cap. Total sockets remain capped at 16,384 by config validation.
+- Status: Active
+
+## D-033: Report GatewayCore overhead separately from forwarder time
+- Date: 2026-11-02
+- Phase: 5
+- Made by: Codex
+- Decision: Record a bounded 4,096-sample percentile window for total `GatewayCore::handle` duration minus the summed time spent in its forwarder attempts. Expose p50, p95 and p99 in `/api/stats` and `/metrics`.
+- Why: The Phase 5 acceptance target measures gateway processing overhead excluding proxy and target time; forwarder time already measures those attempts.
+- Alternatives considered: Infer overhead by subtracting separately measured client percentiles (measurement noise and non-paired samples); add timing to ingress and reply writes (broader end-to-end instrumentation, beyond the current core target).
+- Consequences: The reported value covers gateway-core processing around forwarding, including routing/retry bookkeeping, and excludes request queue delay and client write time.
+- Status: Active
+
+## D-034: Disable Nagle on the test proxy sockets used by Phase 5 benchmarks
+- Date: 2026-11-02
+- Phase: 5
+- Made by: Codex
+- Decision: Set `TCP_NODELAY` on accepted sockets in the Python fault proxy so small HTTP response writes are not delayed on persistent gateway-to-proxy connections.
+- Why: A direct 30-request keep-alive sample against the original test proxy measured about 42 ms p50 and 43 ms p95, while per-connection requests were about 1–2 ms. That showed the proxy's Nagle/delayed-ACK interaction was dominating the keep-alive comparison rather than gateway overhead.
+- Alternatives considered: Attribute the measured delay to the gateway (the same delay appears when bypassing it); discard keep-alive measurements from the standard test bed.
+- Consequences: Phase 1–4 correctness behavior and fault settings are unchanged; Phase 5 performance measurements against the persistent test-proxy path become representative of gateway reuse.
+- Status: Active
+
+## D-035: Evict the oldest idle socket when the global pool cap is reached
+- Date: 2026-11-02
+- Phase: 5
+- Made by: Codex
+- Decision: If a request needs a new connection while the total pool cap is full, close the oldest idle socket across all proxies and use the freed slot. Never evict a socket with an in-flight request.
+- Why: A busy proxy must be able to acquire capacity when another proxy has unused idle sockets; otherwise the global cap can strand queued requests until an unrelated idle timeout expires.
+- Alternatives considered: Wait for idle timeout (needlessly delays requests); evict any active socket (would interrupt a request).
+- Consequences: An idle proxy connection may be reopened on its next request when the gateway is under global descriptor pressure.
+- Status: Active
