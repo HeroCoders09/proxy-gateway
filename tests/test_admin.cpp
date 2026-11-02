@@ -23,7 +23,7 @@ TEST_CASE("admin /health shape") {
   REQUIRE(j["status"] == "ok");
   REQUIRE(j["uptime_seconds"].is_number());
   REQUIRE(j["version"].is_string());
-  REQUIRE(j["stub"] == true);
+  REQUIRE(j["stub"] == false);
 }
 
 TEST_CASE("admin /proxies shape has one entry per configured proxy") {

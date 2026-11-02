@@ -34,15 +34,18 @@ case "${1:-}" in
     start_one proxy1 env PROXY_ID=proxy1 PORT=3128 CONTROL_PORT=3228 BIND=127.0.0.1 HOST_OVERRIDES="$OVERRIDES" python3 "$HERE/proxies/faultproxy.py"
     start_one proxy2 env PROXY_ID=proxy2 PORT=3129 CONTROL_PORT=3229 BIND=127.0.0.1 HOST_OVERRIDES="$OVERRIDES" DELAY_MS=100 python3 "$HERE/proxies/faultproxy.py"
     start_one proxy3 env PROXY_ID=proxy3 PORT=3130 CONTROL_PORT=3230 BIND=127.0.0.1 HOST_OVERRIDES="$OVERRIDES" FAIL_PCT=20 python3 "$HERE/proxies/faultproxy.py"
-    for p in "$TARGET_PORT" 3128 3129 3130; do
+    start_one control env CONTROL_BIND=127.0.0.1 CONTROL_PORT=9100 python3 "$HERE/control-service/control_service.py"
+    for p in "$TARGET_PORT" 3128 3129 3130 9100; do
       wait_port "$p" || { echo "test bed: port $p did not come up (see $RUN/*.log)" >&2; exit 1; }
     done
-    echo "test bed (local mode) is up: target :$TARGET_PORT, proxies :3128 :3129 :3130"
+    echo "test bed (local mode) is up: target :$TARGET_PORT, proxies :3128 :3129 :3130, control :9100"
     ;;
   stop)
     for f in "$RUN"/*.pid; do
       [ -f "$f" ] || continue
-      kill "$(cat "$f")" 2>/dev/null
+      pid="$(cat "$f")"
+      kill -CONT "$pid" 2>/dev/null || true
+      kill "$pid" 2>/dev/null || true
       rm -f "$f"
     done
     echo "test bed (local mode) stopped"

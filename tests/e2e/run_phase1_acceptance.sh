@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Runs the Phase 1 done checklist items that can be checked automatically:
 #   UC1, 1,000 sequential requests, malformed -> 400, invalid config rejected (UC9), fd-leak check,
-#   admin stub shapes, test-bed fault behaviour (proxy2 +100 ms, proxy3 ~20 % failures).
+#   admin live API shapes, test-bed fault behaviour (proxy2 +100 ms, proxy3 ~20 % failures).
 # Usage: tests/e2e/run_phase1_acceptance.sh [--local]
 set -u
 . "$(dirname "${BASH_SOURCE[0]}")/../../scripts/lib.sh"

@@ -1,0 +1,17 @@
+scenario,setting,requests,throughput_rps,p50_ms,p95_ms,p99_ms,success_rate,gateway_request_delta,accuracy_delta_pct,metrics_match_1pct,interpretation
+routing_policy,random,120,227.15,3.873,300.014,301.857,1.0,120,0.0,True,difference under 5%; inconclusive at this sample size
+routing_policy,roundrobin,120,232.15,4.081,301.092,304.554,1.0,120,0.0,True,reference measurement
+routing_policy,leastconn,120,908.62,6.674,102.021,103.148,1.0,120,0.0,True,291.4% higher throughput than roundrobin
+routing_policy,latency,120,386.14,3.772,302.707,304.407,1.0,120,0.0,True,66.3% higher throughput than roundrobin
+routing_policy,weighted,120,385.75,3.152,299.422,300.477,1.0,120,0.0,True,66.2% higher throughput than roundrobin
+pool_size,2,120,58.96,3.38,1217.154,1217.858,1.0,120,0.0,True,74.7% lower throughput than 8
+pool_size,4,120,117.24,3.475,610.041,611.596,1.0,120,0.0,True,49.6% lower throughput than 8
+pool_size,8,120,232.75,3.432,300.35,302.38,1.0,120,0.0,True,reference measurement
+pool_size,16,120,378.74,4.396,190.033,192.149,1.0,120,0.0,True,62.7% higher throughput than 8
+worker_mode,fixed,120,229.35,4.478,300.896,303.015,1.0,120,0.0,True,reference measurement
+worker_mode,aimd,120,115.09,204.536,305.995,307.591,1.0,120,0.0,True,49.8% lower throughput than fixed
+keep_alive,off_simple,120,523.23,4.242,103.98,105.496,1.0,120,0.0,True,reference measurement
+keep_alive,on_epoll,120,232.96,3.663,302.61,304.602,1.0,120,0.0,True,55.5% lower throughput than off_simple
+health_aware_fault_trial,faults_off,120,385.75,3.085,303.084,305.019,1.0,120,0.0,True,difference under 5%; inconclusive at this sample size
+health_aware_fault_trial,faults_on_aware,120,385.3,3.87,302.931,304.509,0.99167,120,0.0,True,reference measurement
+health_aware_fault_trial,faults_on_unaware,120,385.76,3.605,302.889,304.606,0.95833,120,0.0,True,difference under 5%; inconclusive at this sample size

@@ -36,7 +36,7 @@ Bugs, gaps and deferred work that are not fixed yet, with the phase that should 
 - Found in phase: 1   Should be fixed in phase: 6
 - Description: `src/admin/` answers one request at a time and returns dummy values for everything except the Phase 1 counters. `/ui` is a placeholder.
 - Impact: None before Phase 6; field names are fixed in INTERFACES.md.
-- Status: Open
+- Status: Phase 6 replaces stub data and `/ui` placeholder with live endpoints and dashboard. The admin server remains single-threaded; runtime validation is pending.
 
 ## I-007: Test-bed proxies and target are Python, so absolute throughput is limited by them
 - Found in phase: 1   Should be fixed in phase: 5 (report), 6
@@ -85,3 +85,9 @@ Bugs, gaps and deferred work that are not fixed yet, with the phase that should 
 - Description: `tcpdump -i lo` exits with `Operation not permitted`; `sudo` requires a password that is not available to this session.
 - Impact: The required packet-level SYN/keep-alive trace could not be saved. `bench/results/phase5_reuse_syscalls.txt` provides supplemental evidence: one upstream `connect()` and two requests on the same descriptor.
 - Status: Environment blocker; capture remains to be repeated on a host with `CAP_NET_RAW` or `CAP_NET_ADMIN`.
+
+## I-015: Phase 6 runtime acceptance and demo rehearsals are pending
+- Found in phase: 6   Should be fixed in phase: 6 (before sign-off)
+- Description: The current Phase 6 implementation has not yet been validated with the unit/sanitizer suites, a dashboard runtime walkthrough, benchmark counter-accuracy review, or two clean-start demo rehearsals.
+- Impact: The dashboard and control paths may still have integration issues; the implementation is not ready to claim Phase 6 acceptance.
+- Status: Open. See `docs/HANDOFF_PHASE_6.md` for the validation checklist and `docs/PROGRESS.md` for the latest recorded checks.

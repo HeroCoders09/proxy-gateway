@@ -119,7 +119,7 @@ for _ in range(20):
 time.sleep(0.2)
 check(gateway_alive(), "gateway survives 20 client connections reset mid-request")
 
-# 5. admin stub: documented shapes
+# 5. live admin API: documented shapes
 def admin(path):
     with urllib.request.urlopen(ADMIN + path, timeout=3) as r:
         return r.status, r.read().decode(), r.headers.get("Content-Type", "")

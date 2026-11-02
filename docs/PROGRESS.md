@@ -3,10 +3,10 @@
 Newest entries at the bottom of the Log. Times are UTC.
 
 ## Current state (keep this block up to date)
-- Current phase: 4 done. Next: Phase 5
+- Current phase: Phase 6 in progress (Phase 5 implementation present; acceptance items remain open)
 - Current owner: Codex
-- Branch: `phase-4-health`
-- Last green build and test run: 2026-11-02 02:05 UTC (88 test cases / 1,401 assertions, normal and ASan/UBSan)
+- Branch: `phase-6-dashboard`
+- Last green build: 2026-11-02 Phase 6 C++ build passed before the latest dashboard scenario edits (test binary built; tests not executed); rebuild current worktree before handoff
 - Command that shows current state: `git status --short --branch && cmake -S . -B build && cmake --build build -j && ./build/pg_tests`
 
 ### Phase status tracker (mirror of handbook 10.3)
@@ -17,11 +17,11 @@ Newest entries at the bottom of the Log. Times are UTC.
 | 2 | Scheduling and concurrency | Phase 2 owner | Done | `docs/HANDOFF_PHASE_2.md` |
 | 3 | Routing and retries | Phase 3 owner | Done | `docs/HANDOFF_PHASE_3.md` |
 | 4 | Health and fault tolerance | Codex | Done | `docs/HANDOFF_PHASE_4.md` |
-| 5 | Fast network I/O |  | Not started | `docs/HANDOFF_PHASE_5.md` |
-| 6 | Dashboard, metrics, benchmarks, demo |  | Not started | `docs/HANDOFF_PHASE_6.md` |
+| 5 | Fast network I/O | Codex | Implemented; acceptance open | `docs/HANDOFF_PHASE_5.md` |
+| 6 | Dashboard, metrics, benchmarks, demo | Codex | In progress | `docs/HANDOFF_PHASE_6.md` |
 
 ## Open questions
-- Is HTTPS through the gateway (HTTP CONNECT) required? Today it returns 400 (I-001). Ask the team before Phase 5. Asked to: team, on 2026-11-01.
+- Is HTTPS through the gateway (HTTP CONNECT) required? Today it returns 400 (I-001). Phase 5 scope was confirmed HTTP-only; reconsider only if project requirements change.
 - Does the SRS define "successful request" differently from D-010 (transport OK and status below 500)? UNVERIFIED; the SRS text is not in this checkout. Carry to the next team sync before final acceptance.
 - Phase owner names in the handbook (Persons 1 to 6) are still blank.
 
@@ -29,11 +29,20 @@ Newest entries at the bottom of the Log. Times are UTC.
 - 2026-11-02 Phase 5 start: Created branch `phase-5-epoll-io` from the Phase 4-complete `main`. Revalidated normal and ASan/UBSan suites (88 cases / 1,401 assertions each), local smoke, Phase 2 rate/AIMD, Phase 3 retry, and Phase 4 fault verification before Phase 5 work. The Phase 4 report was refreshed with this run's measurements. Reviewed Phase 5 requirements and existing forwarder/config/parser interfaces; implementation has not started yet. Open scope question: whether to add HTTPS CONNECT tunneling, tracked as I-001.
 - 2026-11-02 Phase 5 remaining checks: Added strict `forwarder_pool` configuration for per-proxy/global caps and idle timeout (D-032), plus bounded GatewayCore overhead percentiles in `/api/stats` and `/metrics` (D-033). Added multi-request pool reuse, four-connection concurrency cap, peer-close recovery, idle eviction, timeout and FD-balance tests. D-035 evicts the oldest idle socket when global capacity is needed. Updated the local Python proxy to set `TCP_NODELAY` after measuring a 42 ms persistent-response artifact (D-034). Final normal and ASan/UBSan suites pass (93 cases / 1,489 assertions each); Phase 2 rate/AIMD, Phase 3 retry and Phase 4 fault verifiers pass with epoll selected. Benchmark results: sequential epoll p95 1.86 ms vs simple 2.19 ms (1,000 samples); epoll throughput 1,448 req/s at concurrency 32 vs simple 1,005 req/s; 1,000 clients completed but peaked at 718 active workers and 29.7 MiB gateway RSS; core overhead p95 was 0.16 ms at concurrency 32 and 22.43 ms in the 1,000-client run. Direct target/proxy throughput was 2,705/1,468 req/s. Measurements are in `bench/results/phase5_performance.md` and `.json`. `strace` evidence shows one upstream connect and two requests sharing that fd in `bench/results/phase5_reuse_syscalls.txt`; raw tcpdump capture was denied by missing capture permission (I-014).
 
-## Phase 5 stop entry (current)
+## Phase 5 stop entry
 - Done: Branch `phase-5-epoll-io`; HTTP-only scope confirmed; epoll reactor, bounded/configurable keep-alive pool, metrics, concurrency/eviction/reset/timeout/FD tests, sanitizer checks, epoll smoke and Phase 2–4 runtime verifiers are complete. Benchmark report and syscall trace are recorded.
 - Half done: Performance thresholds remain unmet or incomplete: 5,000 req/s, 1,000 active workers, overhead <=5 ms under the 1,000-client load, and raw tcpdump evidence.
 - Next steps: Optimize high-load overhead/concurrency; repeat tcpdump capture in an environment with `CAP_NET_RAW`/`CAP_NET_ADMIN`; then rerun the benchmark and complete the Phase 5 handoff.
 - Known problems: I-004 / I-007 / I-009 / I-010 / I-011 / I-013 / I-014 remain open or partially resolved as recorded in `docs/ISSUES.md`; the 5,000 req/s, 1,000 in-flight and high-load overhead targets are not met on this Python test bed.
+- How to resume / see current state: `git status --short --branch && cmake -S . -B build && cmake --build build -j && ./build/pg_tests`
+- 2026-11-02 Phase 6 start: Created `phase-6-dashboard` from the Phase 5 branch while preserving the clean worktree. Added live dashboard/admin integration, dynamic routing/rate/health-awareness controls, bounded background CSV/JSONL output with URL redaction, localhost-only test-bed controls, load-generator and benchmark runners, demo config/script, and interim handoff. Final C++ build, Python syntax compilation, dashboard JavaScript syntax check and `git diff --check` pass; the unit-test binary was built but tests and runtime checks have not been run. Phase 5 performance acceptance remains open.
+- 2026-11-03 Dashboard interaction update: Removed the left navigation rail and added editable per-test-proxy delay/failure settings plus one-click baseline, delay, flaky-proxy and combined presets. Proxy endpoints are shown from live gateway state and remain read-only; fault changes call the localhost-only control service. Python and dashboard JavaScript syntax checks and `git diff --check` pass; UI runtime walkthrough is still pending. Local test-bed shutdown now resumes a paused Proxy 3 before stopping it.
+
+## Phase 6 stop entry (current)
+- Done: Dashboard, admin/output/control/benchmark implementation and demo instructions are present on `phase-6-dashboard`. README, interface notes and interim handoff describe the implemented local test-bed scenarios. No commit or push has been made.
+- Half done: Current-worktree C++ rebuild, unit/sanitizer suites, runtime control walkthrough, benchmark run and two clean-start demo rehearsals.
+- Next steps: Rebuild; run unit and sanitizer suites; exercise local (and Docker if available) controls; check metric accuracy; run benchmark; rehearse twice; then update handoff with evidence.
+- Known problems: Phase 6 acceptance is not signed off. Phase 5 high-load targets and packet-capture evidence remain open. SRS/editable design sources are unavailable in this checkout; see D-039. Current dashboard scenarios use the bundled test proxies, not external providers.
 - How to resume / see current state: `git status --short --branch && cmake -S . -B build && cmake --build build -j && ./build/pg_tests`
 - 2026-11-02 Phase 5 handoff: Wrote `docs/HANDOFF_PHASE_5.md` as an interim handoff at Gourav's request. It documents implementation and test evidence, the unmet 1,000-active-request/high-load overhead targets, and the missing raw packet trace. No commit was made; Phase 5 is not marked complete.
 - 2026-11-02 Phase 1 compatibility check with epoll: `tests/e2e/run_phase1_acceptance.sh --local` reached all checks. Direct proxy fault checks passed (Proxy 3 18% failures); 944/1,000 gateway requests succeeded because injected HTTP 502 responses are passed through without retry per D-021. Malformed-input, gateway-survival, admin-shape and descriptor checks passed. Handoff now records this partial result accurately; the suite is not described as fully passing.
@@ -78,3 +87,5 @@ Newest entries at the bottom of the Log. Times are UTC.
 - Next steps: Phase 5 starts from this branch after team handoff; read `docs/HANDOFF_PHASE_4.md` first.
 - Known problems: The SRS success-definition question is UNVERIFIED because the SRS is not in this checkout. See `docs/ISSUES.md` for other open items.
 - How to resume / see current state: `git status --short --branch && cmake -S . -B build && cmake --build build -j && ./build/pg_tests`
+
+- 2026-11-03 Documentation update: README, Phase 6 handoff, demo guide and interface reference now describe the current dashboard controls, local test-bed scope and outstanding acceptance evidence. No commit or push was made.
