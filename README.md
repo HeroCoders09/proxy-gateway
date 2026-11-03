@@ -107,6 +107,10 @@ the admin interface, config validation with the gateway itself before saving, ad
 the log. Config lives in `~/.config/proxy-gateway/gateway.json` (mode 600; stored passwords are never shown again). The UI server binds to
 127.0.0.1 only, checks the Host header and requires a per-launch session cookie.
 
+The **Test request** tab also has a paced load test. It sends GET requests through the running gateway and its configured upstream proxies. Loopback targets (for example `http://127.0.0.1:9000/health`) require local proxy nodes and allow 1–250 requested requests/second for 1–120 seconds. Public DNS targets (for example `http://httpbin.org/get`) can use local or real upstream proxies and are capped at 10 requests/second, 60 seconds, and 600 total requests per run. Public targets must resolve to public IP addresses and use HTTP port 80. The dashboard shows scheduled and completed requests, HTTP status counts, success/failure totals, achieved throughput and latency percentiles. Actual throughput depends on gateway capacity, proxy delays and configured limits.
+
+To run the gateway with the saved real upstream proxy endpoints and open the dashboard, run `./scripts/run_real_proxy_demo.sh`. The proxy services must already be reachable; the script builds and starts the gateway, then opens the dashboard using `~/.config/proxy-gateway/gateway.json` (or the path in `GATEWAY_CONFIG`). Public load-test targets can use these configured real proxies under the public-target limits above. A loopback target such as `127.0.0.1:9000` requires local proxy nodes because a remote proxy cannot reach the loopback interface on your computer.
+
 ## File descriptors
 
 Every client connection, in-flight upstream request, CONNECT tunnel (2) and **idle pooled upstream connection** holds a descriptor.
