@@ -90,10 +90,22 @@ Bugs, gaps and deferred work that are not fixed yet, with the phase that should 
 - Found in phase: 6   Should be fixed in phase: 6 (before sign-off)
 - Description: The current Phase 6 implementation has not yet been validated with the unit/sanitizer suites, a dashboard runtime walkthrough, benchmark counter-accuracy review, or two clean-start demo rehearsals.
 - Impact: The dashboard and control paths may still have integration issues; the implementation is not ready to claim Phase 6 acceptance.
-- Status: Open. See `docs/HANDOFF_PHASE_6.md` for the validation checklist and `docs/PROGRESS.md` for the latest recorded checks.
+- Status: Fixed 2026-11-03. Normal and sanitizer suites, local dashboard/control walkthrough, Docker control actions, 16-scenario benchmark (0% request-counter delta), output privacy check, and two clean-start rehearsals are recorded in `docs/HANDOFF_PHASE_6.md`.
 
-## I-016: Third-party proxy provider integration is not implemented
-- Found in phase: 6   Should be fixed in phase: future demo extension (if a provider is selected)
-- Description: The gateway config accepts proxy host/port, but has no proxy authentication fields. The dashboard's endpoint display is read-only and its delay/failure controls are specific to the bundled local test bed. Client HTTPS CONNECT is also outside the current HTTP-only ingress contract (I-001).
-- Impact: An authorized provider endpoint that accepts unauthenticated/IP-allow-listed HTTP forwarding may be tried via a separate local config, but many commercial providers require authentication or HTTPS tunneling and cannot be demonstrated by this build as-is.
-- Status: Deferred until a provider and its supported protocol/auth model are selected. Never store provider credentials in tracked config or docs.
+## I-016: Provider support is limited to HTTP forward proxies
+- Found in phase: 6   Should be fixed in phase: future provider integration
+- Description: Proxy entries support Basic upstream authentication through an environment variable. Dashboard endpoint display remains read-only and fault controls remain specific to the bundled local test bed. Client HTTPS CONNECT and TLS to upstream providers are outside the current protocol contract.
+- Impact: HTTP-only provider endpoints can be configured, including providers requiring Basic auth. Credentials are not encrypted between gateway and upstream proxy on the current plain HTTP transport.
+- Status: Partly fixed 2026-11-03; provider-specific protocol/TLS support remains future work. Never store provider credentials in tracked config or docs.
+
+## I-017: Egress hostname allowlists do not pin or validate resolved IP addresses
+- Found in phase: productization   Should be fixed in phase: productization before internet-facing deployment
+- Description: The new destination policy matches the parsed hostname and port exactly, but the gateway delegates destination DNS resolution to the selected upstream proxy. It cannot currently reject a permitted name that resolves to a private or otherwise restricted address.
+- Impact: An allowlisted hostname with unsafe DNS results could still reach an unintended network through a capable upstream proxy. Keep the service on loopback/trusted networks until destination IP policy is enforced at the egress point.
+- Status: Open; tracked as a security requirement for the next productization slice.
+
+## I-018: Client Basic credentials are sent over plaintext gateway HTTP
+- Found in phase: productization   Should be fixed in phase: productization before remote client access
+- Description: The gateway listener itself does not provide TLS. Basic proxy credentials are only encoded, not encrypted, on its client connection. An optional Docker Compose `tls` profile now wraps the gateway listener with stunnel.
+- Impact: Credentials can be observed if clients use the raw HTTP port on an untrusted network. The TLS front end is not yet build/runtime-verified; keep its default bind on 127.0.0.1 until configured with a trusted certificate and verified.
+- Status: Local TLS front end built and verified with a self-signed certificate on 2026-11-03. Remote access still requires a trusted certificate and correct bind address; keep this open for production deployment readiness.

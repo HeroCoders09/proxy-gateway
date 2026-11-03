@@ -130,6 +130,30 @@ TEST_CASE("build_proxy_request uses absolute-form and strips hop-by-hop headers"
   REQUIRE(r.substr(r.size() - 3) == "abc");
 }
 
+TEST_CASE("build_proxy_request adds configured upstream proxy credentials") {
+  Job j = make_job();
+  const std::string request = build_proxy_request(j, false, "provider-user", "provider-secret");
+  REQUIRE(request.find("Proxy-Authorization: Basic cHJvdmlkZXItdXNlcjpwcm92aWRlci1zZWNyZXQ=\r\n") != std::string::npos);
+  REQUIRE(request.find("provider-secret") == std::string::npos);
+}
+
+TEST_CASE("simple forwarder sends configured credentials only to its upstream proxy") {
+  FakeServer proxy([](const std::string&) {
+    return std::string("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok");
+  });
+  ProxyState state = proxy_at(proxy.port());
+  state.auth_username = "provider-user";
+  state.auth_password = "provider-secret";
+  Job job = make_job();
+  job.headers.push_back({"Proxy-Authorization", "Basic client-secret"});
+  SimpleForwarder forwarder(1000, 2000);
+  REQUIRE(forwarder.forward(job, state).ok());
+  const auto requests = proxy.requests();
+  REQUIRE(requests.size() == 1);
+  REQUIRE(requests[0].find("Proxy-Authorization: Basic cHJvdmlkZXItdXNlcjpwcm92aWRlci1zZWNyZXQ=\r\n") != std::string::npos);
+  REQUIRE(requests[0].find("client-secret") == std::string::npos);
+}
+
 TEST_CASE("forwarder returns status, headers and body from the proxy") {
   FakeServer proxy([](const std::string&) {
     return std::string("HTTP/1.1 200 OK\r\nContent-Length: 11\r\nX-From: proxy\r\n\r\nhello world");
@@ -269,7 +293,11 @@ TEST_CASE("epoll global pool cap evicts idle sockets when another proxy needs ca
   KeepAliveTestProxy second_proxy;
   EpollForwarder f(1000, 1000, 1u << 20, 1, 10000, nullptr, 1);
   auto first = f.forward(make_job(), proxy_at(first_proxy.port()));
-  auto second = f.forward(make_job(), ProxyState{.id = 8, .host = "127.0.0.1", .port = second_proxy.port()});
+  ProxyState second_state;
+  second_state.id = 8;
+  second_state.host = "127.0.0.1";
+  second_state.port = second_proxy.port();
+  auto second = f.forward(make_job(), second_state);
   REQUIRE(first.ok());
   REQUIRE(second.ok());
   REQUIRE(first_proxy.served() == 1);

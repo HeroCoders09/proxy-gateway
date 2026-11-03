@@ -33,6 +33,14 @@ TEST_CASE("minimal config gets defaults") {
   REQUIRE(c.proxies[0].id == 0);
 }
 
+TEST_CASE("config reads upstream authentication without embedding a password") {
+  auto c = parse_config_text(R"({"proxies":[{"host":"provider","port":3128,"auth":{"username":"acct","password_env":"UPSTREAM_PASSWORD"}}]})");
+  REQUIRE(c.proxies[0].auth_username == "acct");
+  REQUIRE(c.proxies[0].auth_password_env == "UPSTREAM_PASSWORD");
+  REQUIRE(c.proxies[0].auth_password.empty());
+  REQUIRE(expect_error(R"({"proxies":[{"host":"provider","port":3128,"auth":{"username":"acct"}}]})").find("auth requires") != std::string::npos);
+}
+
 TEST_CASE("shipped example config is valid") {
   GatewayConfig c = load_config_file(PG_SOURCE_DIR "/config/gateway.json");
   REQUIRE(c.proxies.size() == 3);

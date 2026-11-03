@@ -12,6 +12,16 @@ cmake --build build -j
 
 Open [http://127.0.0.1:9000/ui](http://127.0.0.1:9000/ui). The gateway uses `config/gateway.demo.json`, selects the Phase 5 epoll forwarder, and appends redacted request rows to `/tmp/phase6-demo-requests.csv`.
 
+This demo requires Basic proxy authentication and an exact hostname/port allowlist for its three fictional retailer hosts. If `PROXY_GATEWAY_CLIENT_PASSWORD` is not provided, `scripts/demo.sh start` generates a local password (mode 0600) in the ignored `testbed/.run/client-password` file. It passes the password to the gateway and offer monitor without printing it.
+
+To make one authorized client request through the gateway:
+
+```bash
+curl -x http://127.0.0.1:8000 \
+  --proxy-user "pricelens:$(cat testbed/.run/client-password)" \
+  http://northstar.pricelens.test/api/offers/SKU-1042
+```
+
 The story is **PriceLens**, a service that checks the same SKU across Northstar, Harbor Market, and Copper Lane, then routes those HTTP checks through a proxy pool. These retailer names resolve only inside the test bed. Their deterministic sample prices and stock statuses are synthetic; this demo does not scrape real shops or use third-party proxy providers. Five local proxies expose bounded fault injection and different starting profiles. The dashboard shows configured endpoints read-only; use scenario settings to change delay and injected failure rates.
 
 Click **Start offer monitor**. It sends repeated requests for five SKUs to all three retailer hosts through the gateway. The **Live market watch** table fills with the latest returned offer per SKU and retailer. Northstar has a 50 requests/s limit; the other two use the default limit. Watch check rate, success rate, p50/p95/p99, AIMD concurrency, proxy status, and retailer request hosts.
@@ -46,8 +56,33 @@ The dashboard can edit delay/failure values on every row. Fault-control ports ar
 
 ## Rehearsal record
 
-UNVERIFIED: two clean-start rehearsals are required before Phase 6 sign-off. Record dates, observed recovery, and any deviations here after rehearsing on the target host. Unit/sanitizer suites and runtime walkthroughs are also outstanding; see `docs/HANDOFF_PHASE_6.md`.
+| Date | Start and checks | Recovery / cleanup |
+| --- | --- | --- |
+| 2026-11-03 · local rehearsal 1 | Clean `./scripts/demo.sh start`; dashboard and live APIs loaded; exercised policy/rate controls, latency ladder, offer monitor, kill/circuit opening and restore; observed synthetic offers and recent requests. | Stopped the offer monitor, restored baseline, then ran `./scripts/demo.sh stop`; all processes stopped. |
+| 2026-11-03 · local rehearsal 2 | Removed the first run's generated password and restarted from stopped services; checked dashboard/live stats and authenticated, blocked, and unauthenticated requests (200/403/407). | `./scripts/demo.sh stop`; status confirmed no local services running. |
+
+Phase 6 runtime acceptance, normal and ASan/UBSan tests, benchmark counter accuracy, and local plus Docker proxy controls are recorded in `docs/HANDOFF_PHASE_6.md`. Editable SRS/Design Document source files were not available in the repository for direct updates; see D-039.
 
 ## Optional real-proxy demonstration
 
-The gateway's current proxy configuration accepts only a proxy host and port and sends ordinary HTTP forward-proxy requests. A provider endpoint could be configured in a separate local config and used for an authorized HTTP test, if the provider supports unauthenticated or IP-allow-listed HTTP proxy access. Do not put provider credentials in the repository. Username/password proxy authentication, HTTPS CONNECT from clients, dashboard endpoint editing, and provider lifecycle controls are not implemented. The Phase 6 dashboard fault controls apply only to the bundled test bed.
+The gateway accepts proxy host and port and sends ordinary HTTP forward-proxy requests. A provider requiring HTTP Basic authentication can be configured in a separate local config using `proxies[].auth.username` and `proxies[].auth.password_env`; export the referenced secret (minimum 16 characters) before starting the gateway. Never put provider credentials in tracked config or docs. The provider connection itself is plain HTTP, so use this only on a trusted/private network or with a provider-side network restriction. Client HTTPS CONNECT, dashboard endpoint editing, and provider lifecycle controls are not implemented. The Phase 6 dashboard fault controls apply only to the bundled test bed.
+
+## Optional TLS-protected Docker demo
+
+For a TLS connection from the proxy client to the gateway, use the Docker Compose profile:
+
+```bash
+scripts/docker-demo-tls.sh start
+```
+
+If `PROXY_GATEWAY_CLIENT_PASSWORD` is unset, the script generates a local password and stores it in ignored `testbed/.run/`. It creates a self-signed certificate for `localhost` when trusted certificate files are absent; certificate and key files stay in ignored `testbed/tls/certs/`. The self-signed certificate is for local demonstration only. The TLS listener binds to `127.0.0.1:8443` by default. The curl example below assumes the script generated the password file.
+
+```bash
+curl --proxy https://localhost:8443 \
+  --proxy-cacert testbed/tls/certs/fullchain.pem \
+  --proxy-user "pricelens:$(cat testbed/.run/docker-client-password)" \
+  http://northstar.pricelens.test/api/offers/SKU-1042
+scripts/docker-demo-tls.sh stop
+```
+
+For deployment, set `TLS_CERT_DIR` to a directory containing a trusted `fullchain.pem` and `privkey.pem`, set a strong `PROXY_GATEWAY_CLIENT_PASSWORD`, and select an appropriate `TLS_BIND`. The Compose gateway's port 8000 remains published only on host loopback; admin stays on host loopback. The TLS front end protects client-to-gateway transport only. It does not add HTTPS `CONNECT` support for destinations.

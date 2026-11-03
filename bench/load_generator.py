@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Small controlled local load generator used by the dashboard demo."""
 import argparse
+import base64
 from concurrent.futures import ThreadPoolExecutor
 import http.client
 import itertools
 import json
+import os
 from pathlib import Path
 import tempfile
 import time
@@ -22,7 +24,13 @@ def worker(index, stop_at, counts, offers, lock):
         sku=SKUS[(n//len(RETAILERS))%len(SKUS)]
         conn=http.client.HTTPConnection("127.0.0.1",8000,timeout=5)
         try:
-            conn.request("GET",f"http://{domain}/api/offers/{sku}",headers={"Host":domain})
+            headers={"Host":domain}
+            password=os.environ.get("PROXY_GATEWAY_CLIENT_PASSWORD","")
+            if password:
+                username=os.environ.get("PROXY_GATEWAY_CLIENT_USERNAME","pricelens")
+                raw=base64.b64encode(f"{username}:{password}".encode()).decode()
+                headers["Proxy-Authorization"]=f"Basic {raw}"
+            conn.request("GET",f"http://{domain}/api/offers/{sku}",headers=headers)
             response=conn.getresponse();body=response.read();status=response.status
             record=json.loads(body) if status==200 else None
         except OSError:

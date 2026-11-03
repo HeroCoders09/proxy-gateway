@@ -20,6 +20,7 @@ class SimpleForwarder final : public Forwarder {
 };
 
 // Builds the forward-proxy request text ("GET http://host/path HTTP/1.1 ..."). Exposed for tests.
-std::string build_proxy_request(const Job& job, bool keep_alive = false);
+std::string build_proxy_request(const Job& job, bool keep_alive = false,
+                               const std::string& auth_username = {}, const std::string& auth_password = {});
 
 }  // namespace pg

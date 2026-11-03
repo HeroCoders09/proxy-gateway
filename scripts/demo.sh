@@ -6,6 +6,22 @@ RUN="$ROOT/testbed/.run"
 mkdir -p "$RUN"
 case "${1:-}" in
   start)
+    CLIENT_SECRET_FILE="$RUN/client-password"
+    if [ -z "${PROXY_GATEWAY_CLIENT_PASSWORD:-}" ]; then
+      if [ ! -s "$CLIENT_SECRET_FILE" ]; then
+        (umask 077; python3 -c 'import secrets; print(secrets.token_urlsafe(32))' >"$CLIENT_SECRET_FILE")
+      fi
+      chmod 600 "$CLIENT_SECRET_FILE"
+      IFS= read -r PROXY_GATEWAY_CLIENT_PASSWORD <"$CLIENT_SECRET_FILE"
+      echo "Using local client credentials (username: pricelens); password stored at testbed/.run/client-password"
+    else
+      echo "Using the supplied PROXY_GATEWAY_CLIENT_PASSWORD for local client authentication"
+    fi
+    if [ "${#PROXY_GATEWAY_CLIENT_PASSWORD}" -lt 16 ]; then
+      echo "PROXY_GATEWAY_CLIENT_PASSWORD must contain at least 16 characters" >&2
+      exit 2
+    fi
+    export PROXY_GATEWAY_CLIENT_PASSWORD
     "$ROOT/testbed/run_local.sh" start
     if [ ! -x "$ROOT/build/gateway" ]; then
       cmake -S "$ROOT" -B "$ROOT/build"
@@ -33,6 +49,7 @@ case "${1:-}" in
       rm -f "$RUN/gateway.pid"
     fi
     "$ROOT/testbed/run_local.sh" stop
+    rm -f "$RUN/client-password"
     ;;
   status)
     "$ROOT/testbed/run_local.sh" status

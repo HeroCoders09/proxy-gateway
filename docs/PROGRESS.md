@@ -3,10 +3,10 @@
 Newest entries at the bottom of the Log. Times are UTC.
 
 ## Current state (keep this block up to date)
-- Current phase: Phase 6 in progress (Phase 5 implementation present; acceptance items remain open)
+- Current phase: Phase 6 software acceptance complete; Phase 5 performance acceptance and whole-project sign-off remain open
 - Current owner: Codex
-- Branch: `phase-6-dashboard`
-- Last green build: 2026-11-02 Phase 6 C++ build passed before the latest dashboard scenario edits (test binary built; tests not executed); rebuild current worktree before handoff
+- Branch: `codex/real-world-gateway`
+- Last green validation: 2026-11-03 normal and ASan/UBSan CTest suites passed (96 cases each); Phase 6 runtime, benchmark, local/Docker controls and rehearsals are recorded in `docs/HANDOFF_PHASE_6.md`
 - Command that shows current state: `git status --short --branch && cmake -S . -B build && cmake --build build -j && ./build/pg_tests`
 
 ### Phase status tracker (mirror of handbook 10.3)
@@ -18,7 +18,7 @@ Newest entries at the bottom of the Log. Times are UTC.
 | 3 | Routing and retries | Phase 3 owner | Done | `docs/HANDOFF_PHASE_3.md` |
 | 4 | Health and fault tolerance | Codex | Done | `docs/HANDOFF_PHASE_4.md` |
 | 5 | Fast network I/O | Codex | Implemented; acceptance open | `docs/HANDOFF_PHASE_5.md` |
-| 6 | Dashboard, metrics, benchmarks, demo | Codex | In progress | `docs/HANDOFF_PHASE_6.md` |
+| 6 | Dashboard, metrics, benchmarks, demo | Codex | Software acceptance complete | `docs/HANDOFF_PHASE_6.md` |
 
 ## Open questions
 - Is HTTPS through the gateway (HTTP CONNECT) required? Today it returns 400 (I-001). Phase 5 scope was confirmed HTTP-only; reconsider only if project requirements change.
@@ -38,12 +38,12 @@ Newest entries at the bottom of the Log. Times are UTC.
 - 2026-11-02 Phase 6 start: Created `phase-6-dashboard` from the Phase 5 branch while preserving the clean worktree. Added live dashboard/admin integration, dynamic routing/rate/health-awareness controls, bounded background CSV/JSONL output with URL redaction, localhost-only test-bed controls, load-generator and benchmark runners, demo config/script, and interim handoff. Final C++ build, Python syntax compilation, dashboard JavaScript syntax check and `git diff --check` pass; the unit-test binary was built but tests and runtime checks have not been run. Phase 5 performance acceptance remains open.
 - 2026-11-03 Dashboard interaction update: Removed the left navigation rail and added editable per-test-proxy delay/failure settings plus one-click baseline, delay, flaky-proxy and combined presets. Proxy endpoints are shown from live gateway state and remain read-only; fault changes call the localhost-only control service. Python and dashboard JavaScript syntax checks and `git diff --check` pass; UI runtime walkthrough is still pending. Local test-bed shutdown now resumes a paused Proxy 3 before stopping it.
 
-## Phase 6 stop entry (current)
-- Done: Dashboard, admin/output/control/benchmark implementation and demo instructions are present on `phase-6-dashboard`. README, interface notes and interim handoff describe the implemented local test-bed scenarios. No commit or push has been made.
-- Half done: Current-worktree C++ rebuild, unit/sanitizer suites, runtime control walkthrough, benchmark run and two clean-start demo rehearsals.
-- Next steps: Rebuild; run unit and sanitizer suites; exercise local (and Docker if available) controls; check metric accuracy; run benchmark; rehearse twice; then update handoff with evidence.
-- Known problems: Phase 6 acceptance is not signed off. Phase 5 high-load targets and packet-capture evidence remain open. SRS/editable design sources are unavailable in this checkout; see D-039. Current dashboard scenarios use the bundled test proxies, not external providers.
-- How to resume / see current state: `git status --short --branch && cmake -S . -B build && cmake --build build -j && ./build/pg_tests`
+## Phase 6 acceptance stop entry (2026-11-03)
+- Done: Phase 6 software acceptance checks completed on `codex/real-world-gateway`; see `docs/HANDOFF_PHASE_6.md`. Changes remain uncommitted for owner review.
+- Verified: normal and ASan/UBSan suites (96 cases each), live dashboard/API and controls, Docker proxy controls, 16 benchmark scenarios with exact request-counter deltas, privacy check, and two clean-start local rehearsals.
+- Remaining for full project sign-off: Phase 5 high-load targets and tcpdump evidence, plus editable specification updates/source reconciliation (D-039/I-013). Phase 6 controls exercise bundled test proxies only.
+- Runtime state: local demo and Docker test-bed services stopped after checks.
+- How to resume / see current state: `git status --short --branch`; see `docs/HANDOFF_PHASE_6.md` for reproducible commands and evidence.
 - 2026-11-02 Phase 5 handoff: Wrote `docs/HANDOFF_PHASE_5.md` as an interim handoff at Gourav's request. It documents implementation and test evidence, the unmet 1,000-active-request/high-load overhead targets, and the missing raw packet trace. No commit was made; Phase 5 is not marked complete.
 - 2026-11-02 Phase 1 compatibility check with epoll: `tests/e2e/run_phase1_acceptance.sh --local` reached all checks. Direct proxy fault checks passed (Proxy 3 18% failures); 944/1,000 gateway requests succeeded because injected HTTP 502 responses are passed through without retry per D-021. Malformed-input, gateway-survival, admin-shape and descriptor checks passed. Handoff now records this partial result accurately; the suite is not described as fully passing.
 - 2026-11-01 18:43 UTC Phase 3 owner: Read the requested tracking files and handbook Sections 2/3/5. Baseline build and normal tests passed (74 cases / 1,267 assertions), local smoke passed, `bench/phase2_verify.py` passed (49/s site A, 100 site B, AIMD 8 -> 4 -> 6), and ASan/UBSan tests passed. Initial smoke was invalidated by a pre-existing listener on :8000; after stopping that listener (per recorded prior authorization), the required chain passed. No code was changed before the baseline passed.
@@ -88,6 +88,17 @@ Newest entries at the bottom of the Log. Times are UTC.
 - Known problems: The SRS success-definition question is UNVERIFIED because the SRS is not in this checkout. See `docs/ISSUES.md` for other open items.
 - How to resume / see current state: `git status --short --branch && cmake -S . -B build && cmake --build build -j && ./build/pg_tests`
 
+## Productization extension stop entry (current)
+- Done: Created `codex/real-world-gateway`; added optional Basic client authentication from an environment secret, exact hostname/port egress allowlists, and enabled them in the PriceLens demos. Local and Docker demo scripts generate a mode-0600 password file when none is supplied. Added an optional stunnel TLS front end to the Docker profile.
+- Done: Added per-upstream HTTP Basic provider credentials through environment variables, without persisting secrets in config or exposing them in admin API JSON.
+- Verified: Full unit suite passes; local and Docker TLS demos return expected 407/403/200 outcomes; TLS image builds and runtime handshake succeed; Docker gateway compiles with GCC 11.4. Test services stopped after verification.
+- Next steps: Add destination-IP policy before internet-facing deployment; add TLS to provider connections if provider credentials traverse an untrusted network. Phase 6 software acceptance is recorded in `docs/HANDOFF_PHASE_6.md`.
+- Known problems: Hostname allowlists cannot validate target DNS results because resolution is delegated to upstream proxies (I-017). Upstream provider credentials travel over plaintext HTTP. Client CONNECT remains out of scope (I-001). Keep admin and raw gateway ports restricted.
+- Handoff: `docs/HANDOFF_PRODUCTIZATION.md`. No commit or push was made.
+- 2026-11-03 productization: Authenticated egress control, optional client TLS deployment, provider Basic auth, local/Docker runtime validation, and cleanup behavior completed on `codex/real-world-gateway`.
+
 - 2026-11-03 Documentation update: README, Phase 6 handoff, demo guide and interface reference now describe the current dashboard controls, local test-bed scope and outstanding acceptance evidence. No commit or push was made.
-- 2026-11-03 PriceLens demo update: Added a synthetic offer endpoint for three fictional retailer hosts, changed the load generator to scan five SKUs through the gateway, and added a dashboard market-watch table populated from returned offers. Prices are labeled synthetic. Third-party provider integration constraints are documented in I-016; no provider credentials or live provider endpoints are configured. Runtime behavior remains to be validated as part of Phase 6 acceptance.
-- 2026-11-03 Five-proxy demo update: Expanded the Phase 6 test bed and demo gateway config to five proxies, added Proxy 4 (250 ms delay) and Proxy 5 (40% failure injection), individual controls, and latency/reliability/mixed presets. Ports 3131–3132 and 3231–3232 are now used in local and Docker modes. Python, JSON, shell, dashboard JavaScript syntax checks and `git diff --check` pass; full local/Docker runtime validation is still outstanding.
+- 2026-11-03 PriceLens demo update: Added a synthetic offer endpoint for three fictional retailer hosts, changed the load generator to scan five SKUs through the gateway, and added a dashboard market-watch table populated from returned offers. Prices are labeled synthetic. Third-party provider integration constraints are documented in I-016; no provider credentials or live provider endpoints are configured. Runtime behavior is validated; see `docs/HANDOFF_PHASE_6.md`.
+- 2026-11-03 Five-proxy demo update: Expanded the Phase 6 test bed and demo gateway config to five proxies, added Proxy 4 (250 ms delay) and Proxy 5 (40% failure injection), individual controls, and latency/reliability/mixed presets. Ports 3131–3132 and 3231–3232 are now used in local and Docker modes. Python, JSON, shell, dashboard JavaScript syntax checks and `git diff --check` pass; local and Docker runtime validation is recorded in `docs/HANDOFF_PHASE_6.md`.
+
+- 2026-11-03 Phase 6 acceptance: Normal and ASan/UBSan suites passed (96 cases each); local dashboard/API and controls, Docker fault controls, 16 benchmark scenarios with exact counter agreement, output privacy, and two clean-start rehearsals passed. Docker control stop/restore timeout and readiness handling were fixed and retested. Phase 6 software acceptance is complete; Phase 5 targets/evidence and source-specification reconciliation remain open. No commit or push was made.

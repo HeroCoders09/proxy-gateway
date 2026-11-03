@@ -65,11 +65,27 @@ services:
     environment: { PROXY_ID: proxy5, CONTROL_PORT: "3200", FAIL_PCT: "40" }
     ports: ["127.0.0.1:3132:3128", "127.0.0.1:3232:3200"]
 
-  gateway:  # placeholder: only started with --profile gateway (UNVERIFIED in Phase 1)
-    profiles: ["gateway"]
+  gateway:
+    profiles: ["gateway", "tls"]
     build: { context: .., dockerfile: testbed/gateway/Dockerfile }
     container_name: gateway
     networks: [proxynet]
     depends_on: [proxy1, proxy2, proxy3, proxy4, proxy5]
     volumes: ["../config/gateway.docker.json:/etc/gateway/gateway.json:ro"]
+    environment:
+      PROXY_GATEWAY_CLIENT_PASSWORD: ${PROXY_GATEWAY_CLIENT_PASSWORD:-}
     ports: ["127.0.0.1:8000:8000", "127.0.0.1:9000:9000"]   # admin published to localhost only
+
+  tls-frontend:
+    profiles: ["tls"]
+    build: ./tls
+    container_name: gateway-tls
+    networks: [proxynet]
+    depends_on: [gateway]
+    restart: unless-stopped
+    security_opt: [no-new-privileges:true]
+    volumes:
+      - ./tls/stunnel.conf:/etc/stunnel/stunnel.conf:ro
+      - ${TLS_CERT_DIR:-./tls/certs}:/certs:ro
+    ports:
+      - "${TLS_BIND:-127.0.0.1}:8443:8443"

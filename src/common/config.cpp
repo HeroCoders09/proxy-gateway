@@ -54,6 +54,13 @@ double read_double(const json& o, const char* key, const std::string& where, dou
   return v;
 }
 
+bool read_bool(const json& o, const char* key, const std::string& where, bool def) {
+  auto it = o.find(key);
+  if (it == o.end()) return def;
+  if (!it->is_boolean()) fail(join(where, key) + " must be a boolean");
+  return it->get<bool>();
+}
+
 std::string read_string(const json& o, const char* key, const std::string& where, const std::string& def) {
   auto it = o.find(key);
   if (it == o.end()) return def;
@@ -138,6 +145,15 @@ void validate_config(const GatewayConfig& c) {
   if (c.output.format != "none" && c.output.path.empty()) {
     fail("output.path is required when output.format is csv or json");
   }
+  if (c.security.client_auth.required) {
+    if (c.security.client_auth.username.empty() || c.security.client_auth.username.find(':') != std::string::npos)
+      fail("security.client_auth.username must be non-empty and must not contain ':'");
+    if (c.security.client_auth.password_env.empty()) fail("security.client_auth.password_env must not be empty");
+  }
+  if (c.security.egress.allowlist_enabled) {
+    if (c.security.egress.allowed_hosts.empty()) fail("security.egress.allowed_hosts must not be empty when enabled");
+    if (c.security.egress.allowed_ports.empty()) fail("security.egress.allowed_ports must not be empty when enabled");
+  }
 }
 
 GatewayConfig parse_config_text(const std::string& text) {
@@ -148,7 +164,7 @@ GatewayConfig parse_config_text(const std::string& text) {
     throw ConfigError(std::string("config: invalid JSON: ") + e.what());
   }
   check_keys(j, "", {"listen", "admin", "proxies", "policy", "forwarder", "rate_limits", "queue_limit",
-                     "forwarder_pool", "workers", "timeouts", "circuit", "weights", "ingress", "output"});
+                     "forwarder_pool", "workers", "timeouts", "circuit", "weights", "ingress", "output", "security"});
 
   GatewayConfig c;
 
@@ -168,13 +184,20 @@ GatewayConfig parse_config_text(const std::string& text) {
     ProxyId next = 0;
     for (const auto& p : *o) {
       std::string where = "proxies[" + std::to_string(next) + "]";
-      check_keys(p, where, {"host", "port"});
+      check_keys(p, where, {"host", "port", "auth"});
       if (!p.contains("host")) fail(where + ".host is required");
       if (!p.contains("port")) fail(where + ".port is required");
       ProxyEndpoint e;
       e.id = next++;
       e.host = read_string(p, "host", where, "");
       e.port = static_cast<uint16_t>(read_int(p, "port", where, 0, 1, 65535));
+      if (const json* a = read_object(p, "auth")) {
+        check_keys(*a, where + ".auth", {"username", "password_env"});
+        e.auth_username = read_string(*a, "username", where + ".auth", "");
+        e.auth_password_env = read_string(*a, "password_env", where + ".auth", "");
+        if (e.auth_username.empty() || e.auth_username.find(':') != std::string::npos || e.auth_password_env.empty())
+          fail(where + ".auth requires a non-empty username (without ':') and password_env");
+      }
       c.proxies.push_back(std::move(e));
     }
   }
@@ -251,6 +274,39 @@ GatewayConfig parse_config_text(const std::string& text) {
     check_keys(*o, "output", {"format", "path"});
     c.output.format = read_string(*o, "format", "output", c.output.format);
     c.output.path = read_string(*o, "path", "output", c.output.path);
+  }
+  if (const json* o = read_object(j, "security")) {
+    check_keys(*o, "security", {"client_auth", "egress"});
+    if (const json* auth = read_object(*o, "client_auth")) {
+      check_keys(*auth, "security.client_auth", {"required", "username", "password_env"});
+      c.security.client_auth.required = read_bool(*auth, "required", "security.client_auth", false);
+      c.security.client_auth.username = read_string(*auth, "username", "security.client_auth", "pricelens");
+      c.security.client_auth.password_env = read_string(*auth, "password_env", "security.client_auth",
+                                                        "PROXY_GATEWAY_CLIENT_PASSWORD");
+    }
+    if (const json* egress = read_object(*o, "egress")) {
+      check_keys(*egress, "security.egress", {"allowlist_enabled", "allowed_hosts", "allowed_ports"});
+      c.security.egress.allowlist_enabled = read_bool(*egress, "allowlist_enabled", "security.egress", false);
+      if (auto it = egress->find("allowed_hosts"); it != egress->end()) {
+        if (!it->is_array()) fail("security.egress.allowed_hosts must be an array of exact host names");
+        for (const auto& value : *it) {
+          if (!value.is_string()) fail("security.egress.allowed_hosts entries must be strings");
+          std::string host = to_lower(value.get<std::string>());
+          if (host.empty() || host.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789.-_") != std::string::npos)
+            fail("security.egress.allowed_hosts entries must be exact host names");
+          c.security.egress.allowed_hosts.push_back(std::move(host));
+        }
+      }
+      if (auto it = egress->find("allowed_ports"); it != egress->end()) {
+        if (!it->is_array()) fail("security.egress.allowed_ports must be an array of ports");
+        for (const auto& value : *it) {
+          if (!value.is_number_integer()) fail("security.egress.allowed_ports entries must be integers");
+          auto port = value.get<long long>();
+          if (port < 1 || port > 65535) fail("security.egress.allowed_ports entries must be between 1 and 65535");
+          c.security.egress.allowed_ports.push_back(static_cast<uint16_t>(port));
+        }
+      }
+    }
   }
 
   validate_config(c);

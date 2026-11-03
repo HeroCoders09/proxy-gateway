@@ -6,11 +6,14 @@
 #include <poll.h>
 #include <sys/socket.h>
 
+#include <algorithm>
 #include <cerrno>
 #include <chrono>
 #include <cstring>
 #include <stdexcept>
+#include <string_view>
 
+#include "common/http_util.hpp"
 #include "common/log.hpp"
 #include "ingress/http_parser.hpp"
 
@@ -38,6 +41,78 @@ void lingering_close(int fd) {
     if (n <= 0) return;  // peer closed (or error): done
     drained += static_cast<size_t>(n);
   }
+}
+
+int base64_value(char c) {
+  if (c >= 'A' && c <= 'Z') return c - 'A';
+  if (c >= 'a' && c <= 'z') return c - 'a' + 26;
+  if (c >= '0' && c <= '9') return c - '0' + 52;
+  if (c == '+') return 62;
+  if (c == '/') return 63;
+  return -1;
+}
+
+bool decode_basic_value(std::string_view encoded, std::string& decoded) {
+  if (encoded.empty() || encoded.size() > 8192 || encoded.size() % 4 != 0) return false;
+  decoded.clear();
+  decoded.reserve(encoded.size() / 4 * 3);
+  for (size_t i = 0; i < encoded.size(); i += 4) {
+    const bool last = i + 4 == encoded.size();
+    int a = base64_value(encoded[i]);
+    int b = base64_value(encoded[i + 1]);
+    int c = encoded[i + 2] == '=' ? -2 : base64_value(encoded[i + 2]);
+    int d = encoded[i + 3] == '=' ? -2 : base64_value(encoded[i + 3]);
+    if (a < 0 || b < 0 || c == -1 || d == -1 || (!last && (c == -2 || d == -2))) return false;
+    if (c == -2) {
+      if (d != -2 || (b & 0x0f) != 0) return false;
+      decoded.push_back(static_cast<char>((a << 2) | (b >> 4)));
+    } else if (d == -2) {
+      if ((c & 0x03) != 0) return false;
+      decoded.push_back(static_cast<char>((a << 2) | (b >> 4)));
+      decoded.push_back(static_cast<char>((b << 4) | (c >> 2)));
+    } else {
+      decoded.push_back(static_cast<char>((a << 2) | (b >> 4)));
+      decoded.push_back(static_cast<char>((b << 4) | (c >> 2)));
+      decoded.push_back(static_cast<char>((c << 6) | d));
+    }
+  }
+  return true;
+}
+
+bool constant_time_equal(std::string_view a, std::string_view b) {
+  size_t difference = a.size() ^ b.size();
+  const size_t n = std::max(a.size(), b.size());
+  for (size_t i = 0; i < n; ++i) {
+    const unsigned char x = i < a.size() ? static_cast<unsigned char>(a[i]) : 0;
+    const unsigned char y = i < b.size() ? static_cast<unsigned char>(b[i]) : 0;
+    difference |= static_cast<size_t>(x ^ y);
+  }
+  return difference == 0;
+}
+
+bool client_authenticated(const Headers& headers, const ClientAuthCfg& auth) {
+  size_t count = 0;
+  const std::string* value = nullptr;
+  for (const auto& header : headers) {
+    if (iequals(header.name, "proxy-authorization")) {
+      ++count;
+      value = &header.value;
+    }
+  }
+  if (count != 1 || !value || value->size() <= 6 || !iequals(std::string_view(*value).substr(0, 6), "Basic "))
+    return false;
+  std::string decoded;
+  if (!decode_basic_value(std::string_view(*value).substr(6), decoded)) return false;
+  const std::string expected = auth.username + ":" + auth.password;
+  return constant_time_equal(decoded, expected);
+}
+
+bool destination_allowed(const EgressCfg& egress, const ParsedRequest& request) {
+  if (!egress.allowlist_enabled) return true;
+  return std::find(egress.allowed_hosts.begin(), egress.allowed_hosts.end(), request.host) !=
+             egress.allowed_hosts.end() &&
+         std::find(egress.allowed_ports.begin(), egress.allowed_ports.end(), request.port) !=
+             egress.allowed_ports.end();
 }
 }  // namespace
 
@@ -207,8 +282,23 @@ void Listener::handle_connection(Fd client) {
     return;
   }
 
-  // Complete: turn it into a Job.
+  // Count parsed requests before applying policy, including authentication and egress denials.
   metrics_.inc(Counter::RequestsTotal);
+  if (cfg_.security.client_auth.required &&
+      !client_authenticated(pr.request.headers, cfg_.security.client_auth)) {
+    metrics_.inc(Counter::RequestsFailed);
+    HttpResponse response = make_error_response(407, "proxy authentication required");
+    response.headers.push_back({"Proxy-Authenticate", "Basic realm=\"gateway\""});
+    write_response(client.get(), response, false, kReplyTimeoutMs);
+    return;
+  }
+  if (!destination_allowed(cfg_.security.egress, pr.request)) {
+    metrics_.inc(Counter::RequestsFailed);
+    write_response(client.get(), make_error_response(403, "destination not allowed"), false, kReplyTimeoutMs);
+    return;
+  }
+
+  // Complete: turn the authorized request into a Job.
   Job job;
   job.id = next_job_id_.fetch_add(1);
   job.url = std::move(pr.request.url);

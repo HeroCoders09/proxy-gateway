@@ -21,6 +21,9 @@ struct ProxyEndpoint {
   ProxyId id = -1;  // index in the proxies array
   std::string host;
   uint16_t port = 0;
+  std::string auth_username;
+  std::string auth_password_env;
+  std::string auth_password;  // loaded at startup; never returned by an API
 };
 
 struct RateLimitCfg {
@@ -54,6 +57,24 @@ struct OutputCfg {
   std::string path;
 };
 
+struct ClientAuthCfg {
+  bool required = false;
+  std::string username = "pricelens";
+  std::string password_env = "PROXY_GATEWAY_CLIENT_PASSWORD";
+  std::string password;  // loaded at startup from password_env; never returned by an API
+};
+
+struct EgressCfg {
+  bool allowlist_enabled = false;
+  std::vector<std::string> allowed_hosts;  // exact, lower-case names; no wildcard matching
+  std::vector<uint16_t> allowed_ports;
+};
+
+struct SecurityCfg {
+  ClientAuthCfg client_auth;
+  EgressCfg egress;
+};
+
 struct ForwarderPoolCfg {
   size_t max_connections_per_proxy = 8;
   size_t max_total_connections = 128;
@@ -85,6 +106,7 @@ struct GatewayConfig {
   WeightsCfg weights;
   IngressCfg ingress;
   OutputCfg output;
+  SecurityCfg security;
 };
 
 // Parse JSON text into a validated config. Throws ConfigError with a clear message.

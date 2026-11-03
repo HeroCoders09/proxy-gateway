@@ -4,6 +4,8 @@
 #include <atomic>
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <memory>
 #include <thread>
 
@@ -38,6 +40,21 @@ int main(int argc, char** argv) {
     if (opts.config_path.empty()) throw ConfigError("--config FILE is required (try --help)");
     cfg = load_config_file(opts.config_path);
     apply_cli_overrides(cfg, opts);
+    if (cfg.security.client_auth.required) {
+      const char* password = std::getenv(cfg.security.client_auth.password_env.c_str());
+      if (!password || std::strlen(password) < 16)
+        throw ConfigError("security.client_auth requires environment variable '" +
+                          cfg.security.client_auth.password_env + "' with at least 16 characters");
+      cfg.security.client_auth.password = password;
+    }
+    for (auto& proxy : cfg.proxies) {
+      if (proxy.auth_password_env.empty()) continue;
+      const char* password = std::getenv(proxy.auth_password_env.c_str());
+      if (!password || std::strlen(password) < 16)
+        throw ConfigError("proxy " + std::to_string(proxy.id) + " requires environment variable '" +
+                          proxy.auth_password_env + "' with at least 16 characters");
+      proxy.auth_password = password;
+    }
   } catch (const ConfigError& e) {
     std::fprintf(stderr, "gateway: error: %s\n", e.what());
     return 2;

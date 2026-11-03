@@ -24,6 +24,7 @@ const char* reason_phrase(int status) {
     case 403: return "Forbidden";
     case 404: return "Not Found";
     case 405: return "Method Not Allowed";
+    case 407: return "Proxy Authentication Required";
     case 413: return "Content Too Large";
     case 429: return "Too Many Requests";
     case 500: return "Internal Server Error";
