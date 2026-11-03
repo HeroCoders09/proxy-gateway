@@ -287,7 +287,7 @@ function render(st){ state=st;
   if(m){ const L=m.latency||{};
     t.append(tile("Requests/s",fmt(m.requests_per_second,1)),tile("Total requests",fmt(m.requests_total)),tile("Successful",fmt(m.requests_successful)),tile("Failed",fmt(m.requests_failed)),
       tile("In flight",fmt(m.active_connections)),tile("Queued",fmt(m.queue_length)),tile("Concurrency limit",fmt(m.worker_count)),tile("Open clients",fmt(m.client_connections)),
-      tile("Idle pooled conns",fmt(m.upstream_idle_connections)),tile("Open files",fmt(m.process_open_fds)+" / "+fmt(m.process_fd_limit)),tile("Active tunnels",fmt(m.active_tunnels)),tile("Timeouts",fmt(m.timeouts)),tile("Latency p50 (ms)",fmt(L["0.50"],1)),tile("Latency p95 (ms)",fmt(L["0.95"],1)),tile("Latency p99 (ms)",fmt(L["0.99"],1))); }
+      tile("Idle pooled conns",fmt(m.upstream_idle_connections)),tile("Timeouts",fmt(m.timeouts)),tile("Latency p50 (ms)",fmt(L["0.50"],1)),tile("Latency p95 (ms)",fmt(L["0.95"],1)),tile("Latency p99 (ms)",fmt(L["0.99"],1))); }
   else t.append(h("div",{class:"empty",style:"grid-column:1/-1"},"Gateway is stopped. Press Start."));
   chart(st.history||[]);
   renderLoadTest(st.load_test||{status:"idle"});
