@@ -8,9 +8,11 @@ metrics, logs, config validation, admin-token generation, test requests.
 
     python3 app/gateway_ui.py [--bin PATH] [--config PATH] [--no-open] [--keep-running]
 """
-import argparse, copy, http.server, json, os, re, secrets, shutil, signal
+import argparse, copy, http.server, ipaddress, json, os, re, secrets, shutil, signal, socket
 import subprocess, sys, threading, time, urllib.error, urllib.request, webbrowser
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from urllib.parse import urlsplit
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
@@ -53,6 +55,9 @@ class Controller:
         self.adopted = None
         self.lock = threading.Lock()
         self.history = []          # (t, rps, p99, active) for the dashboard
+        self.load_lock = threading.Lock()
+        self.load_test = None
+        self.load_test_thread = None
         CONF_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
         STATE_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.cfg_path.parent.mkdir(parents=True, exist_ok=True)
@@ -173,6 +178,7 @@ class Controller:
             return True, "started"
 
     def stop(self):
+        self.stop_load_test(wait=False)
         with self.lock:
             pid = self.pid()
             if not pid:
@@ -292,7 +298,214 @@ class Controller:
         else:
             self.history = []
         st["history"] = self.history
+        st["load_test"] = self.load_test_status()
         return st
+
+    def start_load_test(self, url, rate, duration):
+        if not self.pid():
+            return False, "Start the gateway before starting a load test."
+        if not isinstance(url, str):
+            return False, "Enter a valid HTTP target URL."
+        if len(url) > 2048 or any(ord(c) < 0x20 for c in url):
+            return False, "Enter a valid HTTP target URL."
+        try:
+            parts = urlsplit(url)
+            host = parts.hostname
+            port = parts.port if parts.port is not None else 80
+        except (ValueError, TypeError):
+            return False, "Enter a valid HTTP URL, such as http://127.0.0.1:9000/health or http://httpbin.org/get."
+        if parts.scheme != "http" or not host or parts.username or parts.password or parts.fragment:
+            return False, "Load tests need an HTTP URL without credentials or a fragment."
+        if not 1 <= port <= 65535:
+            return False, "The URL has an invalid port."
+
+        try:
+            target_ip = ipaddress.ip_address(host)
+            if not target_ip.is_loopback:
+                return False, "Use a DNS hostname for public targets, or a loopback IP for a local target."
+            local_target = True
+        except ValueError:
+            local_target = False
+            normalized_host = host.rstrip(".").lower()
+            if "." not in normalized_host or normalized_host.endswith((".localhost", ".local", ".internal", ".lan")):
+                return False, "Public targets must use a public DNS hostname, such as httpbin.org."
+            if port != 80:
+                return False, "Public load-test targets must use the standard HTTP port 80."
+            try:
+                addresses = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+                if not addresses or any(not ipaddress.ip_address(item[4][0]).is_global for item in addresses):
+                    return False, "The public hostname must resolve only to public IP addresses."
+            except (OSError, ValueError):
+                return False, "Could not resolve that public hostname to a public address."
+
+        cfg = self.read_config()
+        proxies = cfg.get("proxies") or []
+        def is_local_proxy(proxy):
+            host = proxy.get("host", "") if isinstance(proxy, dict) else ""
+            if not isinstance(host, str):
+                return False
+            if host.lower() == "localhost":
+                return True
+            try:
+                return ipaddress.ip_address(host.strip("[]")).is_loopback
+            except ValueError:
+                return False
+        if not proxies:
+            return False, "Configure at least one upstream proxy in the Proxies tab before starting a load test."
+        if local_target and any(not is_local_proxy(proxy) for proxy in proxies):
+            return False, "A loopback target can only be reached through local upstream proxy nodes (127.0.0.1 or ::1). Use local proxies or choose a public target."
+
+        max_rate, max_duration = (250, 120) if local_target else (10, 60)
+        request_limit = 30000 if local_target else 600
+        if not isinstance(rate, int) or isinstance(rate, bool) or not 1 <= rate <= max_rate:
+            return False, f"Request rate must be between 1 and {max_rate} requests per second for this target."
+        if not isinstance(duration, int) or isinstance(duration, bool) or not 1 <= duration <= max_duration:
+            return False, f"Duration must be between 1 and {max_duration} seconds for this target."
+        if rate * duration > request_limit:
+            return False, f"This run would exceed the {request_limit:,} request safety limit for this target."
+
+        with self.load_lock:
+            if self.load_test and self.load_test["status"] in ("starting", "running", "stopping"):
+                return False, "A load test is already running. Stop it before starting another."
+            test = {
+                "status": "starting", "url": url, "requested_rps": rate,
+                "duration_seconds": duration, "scheduled": 0, "completed": 0,
+                "successful": 0, "failed": 0, "status_codes": {}, "error_count": 0,
+                "latest_error": "", "latencies_ms": [], "started_at": time.monotonic(),
+                "run_seconds": 0.0, "stop_event": threading.Event(),
+                "gateway_port": cfg.get("listen_port", 8000),
+                "host_header": parts.netloc,
+            }
+            self.load_test = test
+            self.load_test_thread = threading.Thread(target=self._run_load_test,
+                                                    args=(test,), daemon=True)
+            self.load_test_thread.start()
+        target_type = "local" if local_target else "public"
+        return True, f"Started a {rate} requests/second {target_type} test for {duration} seconds."
+
+    def _run_load_test(self, test):
+        rate = test["requested_rps"]
+        period = 1.0 / rate
+        started = time.monotonic()
+        end_at = started + test["duration_seconds"]
+        worker_count = min(256, max(16, rate * 2))
+        slots = threading.BoundedSemaphore(worker_count * 2)
+        with self.load_lock:
+            test["status"] = "running"
+
+        pool = ThreadPoolExecutor(max_workers=worker_count, thread_name_prefix="gateway-load")
+        next_at = started
+        try:
+            while next_at < end_at and not test["stop_event"].is_set():
+                wait = next_at - time.monotonic()
+                if wait > 0 and test["stop_event"].wait(wait):
+                    break
+                if test["stop_event"].is_set():
+                    break
+                while not slots.acquire(timeout=0.1):
+                    if test["stop_event"].is_set() or time.monotonic() >= end_at:
+                        break
+                if test["stop_event"].is_set() or time.monotonic() >= end_at:
+                    break
+                with self.load_lock:
+                    test["scheduled"] += 1
+                try:
+                    pool.submit(self._run_load_request, test, slots)
+                except Exception:
+                    slots.release()
+                    raise
+                next_at += period
+                # If this UI process is briefly delayed, skip missed ticks instead of
+                # bursting a backlog of requests at the target.
+                now = time.monotonic()
+                if next_at < now:
+                    next_at = now + period
+        finally:
+            run_seconds = max(0.001, min(time.monotonic(), end_at) - started)
+            with self.load_lock:
+                test["run_seconds"] = run_seconds
+                if test["status"] != "stopping":
+                    test["status"] = "finishing"
+            pool.shutdown(wait=True)
+            with self.load_lock:
+                test["status"] = "stopped" if test["stop_event"].is_set() else "completed"
+
+    def _run_load_request(self, test, slots):
+        import http.client
+        started = time.monotonic()
+        status = None
+        error = ""
+        conn = None
+        try:
+            conn = http.client.HTTPConnection("127.0.0.1", test["gateway_port"], timeout=15)
+            conn.request("GET", test["url"], headers={"Connection": "close", "Host": test["host_header"]})
+            response = conn.getresponse()
+            status = response.status
+            response.read(1024 * 1024)
+            conn.close()
+        except Exception as exc:
+            error = str(exc)[:240]
+            try:
+                conn.close()
+            except Exception:
+                pass
+        latency = (time.monotonic() - started) * 1000.0
+        with self.load_lock:
+            test["completed"] += 1
+            test["latencies_ms"].append(latency)
+            if len(test["latencies_ms"]) > 5000:
+                del test["latencies_ms"][:-5000]
+            if status is not None:
+                key = str(status)
+                test["status_codes"][key] = test["status_codes"].get(key, 0) + 1
+                if 200 <= status < 400:
+                    test["successful"] += 1
+                else:
+                    test["failed"] += 1
+                    test["latest_error"] = f"HTTP {status}"
+            else:
+                test["failed"] += 1
+                test["error_count"] += 1
+                test["latest_error"] = error
+        slots.release()
+
+    def stop_load_test(self, wait=False):
+        with self.load_lock:
+            test = self.load_test
+            thread = self.load_test_thread
+            if not test or test["status"] not in ("starting", "running", "finishing", "stopping"):
+                return False, "No load test is running."
+            test["status"] = "stopping"
+            test["stop_event"].set()
+        if wait and thread and thread is not threading.current_thread():
+            thread.join(timeout=20)
+        return True, "Stopping the load test and letting in-flight requests finish."
+
+    def load_test_status(self):
+        with self.load_lock:
+            test = self.load_test
+            if not test:
+                return {"status": "idle"}
+            latencies = sorted(test["latencies_ms"])
+            elapsed = test["run_seconds"]
+            if test["status"] in ("starting", "running", "stopping", "finishing"):
+                elapsed = max(0.001, time.monotonic() - test["started_at"])
+            def percentile(p):
+                if not latencies:
+                    return 0.0
+                return round(latencies[int(p * (len(latencies) - 1))], 1)
+            return {
+                "status": test["status"], "url": test["url"],
+                "requested_rps": test["requested_rps"],
+                "duration_seconds": test["duration_seconds"],
+                "elapsed_seconds": round(elapsed, 1),
+                "scheduled": test["scheduled"], "completed": test["completed"],
+                "successful": test["successful"], "failed": test["failed"],
+                "actual_rps": round(test["completed"] / max(elapsed, 0.001), 1),
+                "latency_p50_ms": percentile(0.50), "latency_p95_ms": percentile(0.95),
+                "latency_p99_ms": percentile(0.99), "status_codes": dict(test["status_codes"]),
+                "error_count": test["error_count"], "latest_error": test["latest_error"],
+            }
 
     def test_request(self, url, method, body):
         port = self.read_config().get("listen_port", 8000)
@@ -305,9 +518,10 @@ class Controller:
             # Talk to the gateway directly (absolute-form request line). urllib's
             # ProxyHandler would honour NO_PROXY and silently bypass the gateway.
             import http.client
+            host_header = urlsplit(url).netloc
             conn = http.client.HTTPConnection("127.0.0.1", port, timeout=15)
             data = body.encode() if method == "POST" else None
-            conn.request(method, url, body=data, headers={"Connection": "close"})
+            conn.request(method, url, body=data, headers={"Connection": "close", "Host": host_header})
             r = conn.getresponse()
             payload = r.read(4000)
             out = {"status": r.status, "ms": round((time.time() - t0) * 1000, 1),
@@ -384,6 +598,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self._send(200, (HERE / "proxy-gateway.svg").read_bytes(), "image/svg+xml")
         if path == "/api/state":
             return self._json(self.ctl.state())
+        if path == "/api/load-test/state":
+            return self._json(self.ctl.load_test_status())
         if path == "/api/logs":
             return self._json({"log": self.ctl.tail_log(400)})
         self._send(404, "not found", "text/plain")
@@ -429,6 +645,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if p == "/api/test":
             return self._json(c.test_request(str(body.get("url", "")), body.get("method", "GET"),
                                              str(body.get("body", ""))))
+        if p == "/api/load-test/start":
+            ok, msg = c.start_load_test(body.get("url", ""), body.get("rate"), body.get("duration"))
+            return self._json({"ok": ok, "message": msg}, 200 if ok else 400)
+        if p == "/api/load-test/stop":
+            ok, msg = c.stop_load_test()
+            return self._json({"ok": ok, "message": msg}, 200 if ok else 409)
         if p == "/api/clear-log":
             c.log_path.write_bytes(b"")
             return self._json({"ok": True, "message": "cleared"})
@@ -473,6 +695,7 @@ def main():
     try:
         srv.serve_forever()
     finally:
+        ctl.stop_load_test(wait=True)
         if not a.keep_running and ctl.pid():
             ctl.stop()
 

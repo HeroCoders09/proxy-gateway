@@ -6,8 +6,7 @@
 <title>Proxy Gateway</title>
 <link rel="icon" href="/icon.svg">
 <style>
-:root{--bg:#f5f6f8;--card:#fff;--ink:#1c2230;--mut:#69728a;--line:#e3e6ee;--acc:#2f6fed;--ok:#1a9d5a;--warn:#c98a00;--bad:#d63a3a;--code:#f0f2f7}
-@media (prefers-color-scheme:dark){:root{--bg:#12151c;--card:#1a1f2a;--ink:#e6e9f2;--mut:#98a1b8;--line:#2a3142;--acc:#6b9bff;--ok:#3ec585;--warn:#e3b341;--bad:#ff6b6b;--code:#10131a}}
+:root{color-scheme:light;--bg:#f5f6f8;--card:#fff;--ink:#1c2230;--mut:#69728a;--line:#e3e6ee;--acc:#2f6fed;--ok:#1a9d5a;--warn:#c98a00;--bad:#d63a3a;--code:#f0f2f7}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
 header{display:flex;align-items:center;gap:14px;padding:12px 20px;background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5;flex-wrap:wrap}
@@ -111,6 +110,17 @@ label{display:block;color:var(--mut);font-size:12px;margin-bottom:3px}
     <textarea id="tBody" rows="3" placeholder="POST body" style="margin-top:10px"></textarea>
     <div class="hint">HTTP URLs are sent via the gateway's proxy port. HTTPS uses CONNECT tunnels: <code>curl -x http://127.0.0.1:PORT https://example.com</code></div>
   </div>
+  <div class="card"><h2>Load test</h2>
+    <div class="form">
+      <div><label for="loadUrl">Target URL</label><input id="loadUrl" type="url" value="http://127.0.0.1:9000/health"></div>
+      <div><label for="loadRate">Request rate (requests/second)</label><input id="loadRate" type="number" min="1" max="250" value="100"></div>
+      <div><label for="loadDuration">Duration (seconds)</label><input id="loadDuration" type="number" min="1" max="120" value="10"></div>
+    </div>
+    <div class="row" style="margin-top:12px"><button class="pri" id="loadStart">Start load test</button><button class="danger" id="loadStop" disabled>Stop</button><span class="badge" id="loadStatus">idle</span></div>
+    <div class="hint" id="loadHint">Sends GET requests through configured upstream proxies. Local targets require local proxy nodes; public targets can use local or real upstream proxies. Public traffic is limited to 10 requests/second, 60 seconds, and 600 total requests per run.</div>
+    <div class="grid" id="loadTiles" style="margin-top:14px;margin-bottom:8px"></div>
+    <pre id="loadDetails">No load test run yet.</pre>
+  </div>
   <div class="card"><h2>Response</h2><pre id="tOut">No request sent yet.</pre></div>
 </section>
 
@@ -208,6 +218,26 @@ $("#bStart").onclick=()=>act("/api/start"); $("#bStop").onclick=()=>act("/api/st
 $("#tGo").onclick=async()=>{ $("#tOut").textContent="…"; const r=await api("/api/test",{url:$("#tUrl").value,method:$("#tMethod").value,body:$("#tBody").value});
   $("#tOut").textContent = r.error ? "Error: "+r.error : `HTTP ${r.status}  (${r.ms} ms)\n\n`+Object.entries(r.headers).map(([k,v])=>k+": "+v).join("\n")+"\n\n"+r.body; };
 
+// ---- paced load test
+function updateLoadTargetLimits(){
+  let local=false;
+  try{ const host=new URL($("#loadUrl").value).hostname.replace(/^\[|\]$/g,""); local=(host==="localhost"||host==="::1"||host.startsWith("127.")); }catch(_){}
+  const maxRate=local?250:10, maxDuration=local?120:60;
+  $("#loadRate").max=String(maxRate); $("#loadDuration").max=String(maxDuration);
+  if(Number($("#loadRate").value)>maxRate) $("#loadRate").value=String(maxRate);
+  if(Number($("#loadDuration").value)>maxDuration) $("#loadDuration").value=String(maxDuration);
+  $("#loadHint").textContent=local
+    ? "Sends GET requests through the gateway to a local target. Use local upstream proxy nodes. Limits: 1–250 requests/second and 1–120 seconds. Actual throughput depends on gateway capacity, proxy delays, and configured rate limits."
+    : "Sends GET requests through the gateway to a public HTTP host using your configured local or real upstream proxies. Public targets are capped at 10 requests/second, 60 seconds, and 600 requests per run. Use a test service you are allowed to access; actual throughput depends on gateway and proxy performance.";
+}
+$("#loadUrl").addEventListener("input",updateLoadTargetLimits);
+updateLoadTargetLimits();
+$("#loadStart").onclick=async()=>{
+  const r=await api("/api/load-test/start",{url:$("#loadUrl").value,rate:Number($("#loadRate").value),duration:Number($("#loadDuration").value)});
+  toast(r.message,!r.ok); poll();
+};
+$("#loadStop").onclick=async()=>{ const r=await api("/api/load-test/stop",{}); toast(r.message,!r.ok); poll(); };
+
 // ---- logs
 async function refreshLogs(){ const r=await api("/api/logs"); const o=$("#logOut"); o.textContent=r.log||"(empty)"; if($("#follow").checked) o.scrollTop=o.scrollHeight; }
 $("#clrLog").onclick=async()=>{ await api("/api/clear-log",{}); refreshLogs(); };
@@ -219,6 +249,23 @@ function chart(hist){ const svg=$("#chart"); svg.replaceChildren(); if(hist.leng
   const line=(i,color)=>{ const vals=hist.map(x=>x[i]), mx=Math.max(...vals,1e-9); const pts=vals.map((v,j)=>`${(j/(hist.length-1))*600},${86-(v/mx)*80}`).join(" ");
     const p=document.createElementNS("http://www.w3.org/2000/svg","polyline"); p.setAttribute("points",pts); p.setAttribute("fill","none"); p.setAttribute("stroke",color); p.setAttribute("stroke-width","2"); p.setAttribute("vector-effect","non-scaling-stroke"); svg.append(p); };
   line(1,getComputedStyle(document.documentElement).getPropertyValue("--acc")); line(2,getComputedStyle(document.documentElement).getPropertyValue("--warn")); }
+function renderLoadTest(test){
+  const active=["starting","running","stopping","finishing"].includes(test.status);
+  $("#loadStart").disabled=!state.running||active;
+  $("#loadStop").disabled=!active;
+  $("#loadStatus").textContent=test.status||"idle";
+  $("#loadStatus").className="badge "+(active?"warn":test.status==="completed"?"ok":test.status==="stopped"?"warn":"");
+  const tiles=$("#loadTiles"); tiles.replaceChildren();
+  if(test.status==="idle"){
+    $("#loadDetails").textContent="No load test run yet. Start the gateway and local demo services, then click Start load test.";
+    return;
+  }
+  tiles.append(tile("Requested rate",fmt(test.requested_rps)+" req/s"),tile("Actual completed rate",fmt(test.actual_rps,1)+" req/s"),
+    tile("Completed",fmt(test.completed)),tile("Successful",fmt(test.successful)),tile("Failed",fmt(test.failed)),
+    tile("Latency p50",fmt(test.latency_p50_ms,1)+" ms"),tile("Latency p95",fmt(test.latency_p95_ms,1)+" ms"),tile("Latency p99",fmt(test.latency_p99_ms,1)+" ms"));
+  const codes=Object.entries(test.status_codes||{}).sort((a,b)=>Number(a[0])-Number(b[0])).map(([code,count])=>`${code}: ${count}`).join("  ")||"none yet";
+  $("#loadDetails").textContent=`Target: ${test.url}\nState: ${test.status} · elapsed ${fmt(test.elapsed_seconds,1)}s of ${test.duration_seconds}s\nScheduled: ${fmt(test.scheduled)} · completed: ${fmt(test.completed)}\nHTTP status counts: ${codes}`+(test.latest_error?`\nLatest error: ${test.latest_error}`:"");
+}
 function render(st){ state=st;
   const dot=$("#dot"), tx=$("#stext");
   if(!st.binary){ dot.className="dot warn"; tx.textContent="gateway binary not found (build the project)"; }
@@ -243,6 +290,7 @@ function render(st){ state=st;
       tile("Idle pooled conns",fmt(m.upstream_idle_connections)),tile("Open files",fmt(m.process_open_fds)+" / "+fmt(m.process_fd_limit)),tile("Active tunnels",fmt(m.active_tunnels)),tile("Timeouts",fmt(m.timeouts)),tile("Latency p50 (ms)",fmt(L["0.50"],1)),tile("Latency p95 (ms)",fmt(L["0.95"],1)),tile("Latency p99 (ms)",fmt(L["0.99"],1))); }
   else t.append(h("div",{class:"empty",style:"grid-column:1/-1"},"Gateway is stopped. Press Start."));
   chart(st.history||[]);
+  renderLoadTest(st.load_test||{status:"idle"});
   const pt=$("#ptable"); pt.replaceChildren();
   if(st.proxies&&st.proxies.length){ const pp=(m&&m.per_proxy)||{};
     pt.append(h("table",{},h("thead",{},h("tr",{},["Endpoint","Protocol","Health","Circuit","RTT (ms)","Active","OK","Failed","Success rate"].map(x=>h("th",{},x)))),
