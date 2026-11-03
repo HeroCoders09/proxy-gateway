@@ -76,7 +76,7 @@ Strict: unknown keys, wrong types and out-of-range values are rejected (exit cod
 
 CLI: `gateway --config FILE [--policy NAME] [--workers N] [--help]`. `--config` is required. Exit code 0 on `--help`, 2 for any configuration or CLI error (message `gateway: error: ...` on stderr), 1 if a port cannot be bound.
 
-Ready-made configs: `config/gateway.json` (documented example, hosts `proxy1` to `proxy3`), `config/gateway.local.json` (gateway on the host, proxies on `127.0.0.1:3128-3130`), `config/gateway.docker.json` (gateway container, admin listens on `0.0.0.0` inside the container only).
+Ready-made configs: `config/gateway.json` (documented three-proxy example), `config/gateway.local.json` (host gateway with the original three local proxies), `config/gateway.demo.json` (five-proxy PriceLens demo), and `config/gateway.docker.json` (five proxies for the optional gateway container; admin binds inside the container).
 
 ## Gateway-generated responses
 
@@ -183,9 +183,9 @@ This separate service controls only the bundled local/Docker test bed. Mutations
 
 | Route | Behavior |
 | --- | --- |
-| `GET /proxy-settings` | Current delay/failure settings and availability for fixed proxies `proxy1` through `proxy3` |
+| `GET /proxy-settings` | Current delay/failure settings and availability for fixed test proxies `proxy1` through `proxy5` |
 | `POST /proxy-settings?proxy=proxyN&delay_ms=N&fail_pct=P` | Set delay 0–5,000 ms and failure rate 0–100 whole percent on one fixed test proxy |
-| `POST /scenario?name=baseline\|proxy2_delay\|proxy3_failures\|combined` | Apply a named bounded fault preset |
+| `POST /scenario?name=baseline\|latency_ladder\|reliability_gradient\|combined` | Apply a named bounded fault preset across the five test proxies |
 | `POST /kill-proxy3`, `POST /delay-proxy2`, `POST /restore` | Stop Proxy 3, set 100 ms delay on Proxy 2, or resume Proxy 3 and restore baseline faults |
 | `POST /start-load`, `POST /stop-load`, `GET /load-status` | Start/stop the bundled load generator and read its state |
 | `POST /run-benchmark`, `GET /benchmark-results` | Start the Phase 6 benchmark and poll for status/results |
@@ -217,11 +217,11 @@ Other paths return 404 `{"error":"not found"}`.
 
 | Item | Detail |
 | --- | --- |
-| Target | `GET /products/<id>` (deterministic page containing the id), `GET /health` (`{"status":"ok"}`), `GET /stats` (request counts per Host header, with per-second counts), `?delay_ms=N` on any path. Host names `test.example`, `site-a.example`, `site-b.example` |
-| Proxy nodes | Forward proxy on 3128 (absolute-URL requests and CONNECT). Response header `X-Proxy-Id`. Faults: env `DELAY_MS`, `FAIL_PCT` (injected failures are HTTP 502 `injected failure`), optional `FAIL_SEED` |
-| Proxy control port | `GET /fault?delay_ms=N&fail_pct=P` sets faults at run time; `GET /fault` shows them |
-| Phase 6 control service | `127.0.0.1:9100`; routes and bounds are listed above; controls the bundled test bed only |
-| Host ports (127.0.0.1) | Docker: target 18080 (env `TARGET_HOST_PORT`), proxies 3128/3129/3130, control 3228/3229/3230. Local mode: target 8081, others the same |
+| Target | `GET /products/<id>` (deterministic page), `GET /api/offers/<sku>` (synthetic PriceLens offer JSON keyed by retailer Host), `GET /health`, `GET /stats`; `?delay_ms=N` on product paths. Hosts include legacy test names and `northstar.pricelens.test`, `harbor.pricelens.test`, `copperlane.pricelens.test` |
+| Proxy nodes | Five forward proxies on 3128–3132 (absolute-URL requests and CONNECT). Response header `X-Proxy-Id`. Faults: env `DELAY_MS`, `FAIL_PCT` (injected failures are HTTP 502 `injected failure`), optional `FAIL_SEED` |
+| Proxy control port | Ports 3228–3232; `GET /fault?delay_ms=N&fail_pct=P` sets faults at run time; `GET /fault` shows them |
+| Phase 6 control service | `127.0.0.1:9100`; routes and bounds are listed above; controls the bundled test bed only; `GET /pricelens-summary` reads the latest synthetic offer scan |
+| Host ports (127.0.0.1) | Docker: target 18080 (env `TARGET_HOST_PORT`), proxies 3128–3132, control 3228–3232. Local mode: target 8081, others the same |
 
 ## Change history
 
@@ -242,6 +242,8 @@ Other paths return 404 `{"error":"not found"}`.
 - 2026-11-02 D-038: Phase 6 local-only test-bed controls and benchmark routes are documented.
 - 2026-11-02 D-040: Phase 6 health-aware selection experiment toggle retains circuit exclusions.
 - 2026-11-03 D-041: Dashboard can change bounded test-proxy delay and failure injection and apply named presets.
+- 2026-11-03 D-042: PriceLens demo monitors deterministic synthetic offers from three fictional retailer hosts.
+- 2026-11-03 D-043: Demo test bed expands to five independently configurable local proxies with latency and failure presets.
 - 2026-11-02 D-032: Phase 5 adds configurable per-proxy and global pool limits plus idle eviction.
 - 2026-11-02 D-033: Phase 5 reports bounded gateway-core overhead percentiles.
 - 2026-11-02 D-034: Test proxy sets TCP_NODELAY to avoid a persistent-response timing artifact.

@@ -4,9 +4,9 @@
 # Without Docker, testbed/run_local.sh starts the same servers as plain processes.
 #
 # Published ports (all on 127.0.0.1 only):
-#   18080 target (direct requests; env TARGET_HOST_PORT)   3128 / 3129 / 3130  proxy1 / proxy2 / proxy3
-#   3228 / 3229 / 3230  proxy fault-control ports (change delay and failure rate at run time)
-# The target answers to test.example, site-a.example and site-b.example on network "proxynet".
+#   18080 target (direct requests; env TARGET_HOST_PORT)   3128–3132  proxy1–proxy5
+#   3228–3232  proxy fault-control ports (change delay and failure rate at run time)
+# The target answers to legacy test hosts and PriceLens retailer hosts on "proxynet".
 
 name: proxygw
 
@@ -20,7 +20,7 @@ services:
     container_name: target
     networks:
       proxynet:
-        aliases: [test.example, site-a.example, site-b.example]
+        aliases: [test.example, site-a.example, site-b.example, northstar.pricelens.test, harbor.pricelens.test, copperlane.pricelens.test]
     ports: ["127.0.0.1:${TARGET_HOST_PORT:-18080}:80"]   # override if 18080 is taken: TARGET_HOST_PORT=19090
     environment:
       DELAY_MS: "0"        # optional default response delay for /products/*
@@ -49,11 +49,27 @@ services:
     environment: { PROXY_ID: proxy3, CONTROL_PORT: "3200", FAIL_PCT: "20" }
     ports: ["127.0.0.1:3130:3128", "127.0.0.1:3230:3200"]
 
+  proxy4:   # +250 ms delay
+    build: ./proxies
+    container_name: proxy4
+    networks: [proxynet]
+    depends_on: { target: { condition: service_healthy } }
+    environment: { PROXY_ID: proxy4, CONTROL_PORT: "3200", DELAY_MS: "250" }
+    ports: ["127.0.0.1:3131:3128", "127.0.0.1:3231:3200"]
+
+  proxy5:   # about 40 percent failures
+    build: ./proxies
+    container_name: proxy5
+    networks: [proxynet]
+    depends_on: { target: { condition: service_healthy } }
+    environment: { PROXY_ID: proxy5, CONTROL_PORT: "3200", FAIL_PCT: "40" }
+    ports: ["127.0.0.1:3132:3128", "127.0.0.1:3232:3200"]
+
   gateway:  # placeholder: only started with --profile gateway (UNVERIFIED in Phase 1)
     profiles: ["gateway"]
     build: { context: .., dockerfile: testbed/gateway/Dockerfile }
     container_name: gateway
     networks: [proxynet]
-    depends_on: [proxy1, proxy2, proxy3]
+    depends_on: [proxy1, proxy2, proxy3, proxy4, proxy5]
     volumes: ["../config/gateway.docker.json:/etc/gateway/gateway.json:ro"]
     ports: ["127.0.0.1:8000:8000", "127.0.0.1:9000:9000"]   # admin published to localhost only

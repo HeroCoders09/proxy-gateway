@@ -21,8 +21,8 @@ start_testbed() {  # arg: --local to force local mode
   if [ "${1:-}" != "--local" ] && have_docker; then
     TESTBED_MODE=docker; export TARGET_HOST_PORT="${TARGET_HOST_PORT:-18080}"; TARGET_DIRECT_PORT="$TARGET_HOST_PORT"
     docker compose -f "$ROOT/testbed/docker-compose.yml" up -d --build --wait >/dev/null || {
-      echo "docker compose failed. Common cause: a host port is taken (target $TARGET_HOST_PORT, proxies 3128-3130, control 3228-3230)."
-      echo "Check with: ss -ltnp | grep -E ':(${TARGET_HOST_PORT}|3128|3129|3130)\\b'   Override the target port with TARGET_HOST_PORT=19090"
+      echo "docker compose failed. Common cause: a host port is taken (target $TARGET_HOST_PORT, proxies 3128-3132, control 3228-3232)."
+      echo "Check with: ss -ltnp | grep -E ':(${TARGET_HOST_PORT}|3128|3129|3130|3131|3132)\\b'   Override the target port with TARGET_HOST_PORT=19090"
       return 1; }
   else
     TESTBED_MODE=local; TARGET_DIRECT_PORT=8081

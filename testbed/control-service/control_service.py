@@ -15,17 +15,19 @@ from urllib.request import urlopen
 ROOT = Path(__file__).resolve().parents[2]
 RUN = ROOT / "testbed" / ".run"
 PROXY3_PID = RUN / "proxy3.pid"
-PORTS = {"proxy1": 3228, "proxy2": 3229, "proxy3": 3230}
+PORTS = {"proxy1": 3228, "proxy2": 3229, "proxy3": 3230, "proxy4": 3231, "proxy5": 3232}
 SCENARIOS = {
-    "baseline": {"proxy1": (0, 0), "proxy2": (0, 0), "proxy3": (0, 0)},
-    "proxy2_delay": {"proxy1": (0, 0), "proxy2": (100, 0), "proxy3": (0, 0)},
-    "proxy3_failures": {"proxy1": (0, 0), "proxy2": (0, 0), "proxy3": (0, 20)},
-    "combined": {"proxy1": (0, 0), "proxy2": (100, 0), "proxy3": (0, 20)},
+    "baseline": {"proxy1": (0, 0), "proxy2": (0, 0), "proxy3": (0, 0), "proxy4": (0, 0), "proxy5": (0, 0)},
+    "latency_ladder": {"proxy1": (0, 0), "proxy2": (80, 0), "proxy3": (160, 0), "proxy4": (250, 0), "proxy5": (400, 0)},
+    "reliability_gradient": {"proxy1": (0, 0), "proxy2": (0, 5), "proxy3": (0, 15), "proxy4": (0, 25), "proxy5": (0, 40)},
+    "combined": {"proxy1": (0, 0), "proxy2": (100, 0), "proxy3": (0, 20), "proxy4": (250, 0), "proxy5": (0, 40)},
 }
 KNOWN_PROXY_SETTINGS = {
     "proxy1": {"proxy": "proxy1", "delay_ms": 0, "fail_pct": 0.0},
     "proxy2": {"proxy": "proxy2", "delay_ms": 100, "fail_pct": 0.0},
     "proxy3": {"proxy": "proxy3", "delay_ms": 0, "fail_pct": 20.0},
+    "proxy4": {"proxy": "proxy4", "delay_ms": 250, "fail_pct": 0.0},
+    "proxy5": {"proxy": "proxy5", "delay_ms": 0, "fail_pct": 40.0},
 }
 BENCHMARK = None
 BENCHMARK_LOG = None
@@ -83,7 +85,7 @@ def apply_scenario(name):
 
 def set_proxy_behavior(proxy, delay, failure):
     if proxy not in PORTS:
-        raise ValueError("proxy must be proxy1, proxy2, or proxy3")
+        raise ValueError("proxy must be one of the five configured test proxies")
     if not 0 <= delay <= 5000 or not 0 <= failure <= 100:
         raise ValueError("delay must be 0..5000 ms and failure rate 0..100 percent")
     if proxy == "proxy3":
@@ -141,6 +143,16 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         global BENCHMARK_LOG
+        if self.path == "/pricelens-summary":
+            summary = Path("/tmp/phase6-pricelens-summary.json")
+            if not summary.exists():
+                self._json(200, {"offers": {}, "requests": 0, "updated_at_unix_ms": 0})
+            else:
+                try:
+                    self._json(200, json.loads(summary.read_text()))
+                except (OSError, json.JSONDecodeError):
+                    self._json(200, {"offers": {}, "requests": 0, "updated_at_unix_ms": 0})
+            return
         if self.path == "/proxy-settings":
             states = {}
             for name in PORTS:

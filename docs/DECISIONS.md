@@ -413,3 +413,23 @@ Append-only. Number decisions D-001, D-002 and so on. Never edit an old entry; s
 - Alternatives considered: Let browser input select arbitrary process commands or target arbitrary proxy-control ports; mutate the gateway's live proxy endpoint set, which would also require connection-pool and health-monitor lifecycle changes.
 - Consequences: The control service accepts only the three named test proxies and fixed numeric bounds. Per-proxy fault changes apply immediately; opening circuits and recovery remain governed by Phase 4.
 - Status: Active
+
+## D-042: Use a synthetic PriceLens offer-monitoring story for the demo
+- Date: 2026-11-03
+- Phase: 6
+- Made by: Codex
+- Decision: Demonstrate gateway behavior as PriceLens checking five SKU offers across three fictional retailer hostnames. The local target returns stable synthetic prices/availability; the load generator sends those checks through the gateway and the dashboard shows the latest observations.
+- Why: A concrete product-monitoring workflow makes proxy routing, per-domain limits, latency, failures, and recovery legible in a live presentation without depending on external shopping sites.
+- Alternatives considered: Generate generic requests with no business context; scrape real storefronts, which adds external availability, policy, and data-quality dependencies.
+- Consequences: The dashboard and demo guide label prices as local synthetic data. No real retailer data is fetched. Third-party proxy integration remains separately scoped and is not implied by this demo.
+- Status: Active
+
+## D-043: Expand the demo pool to five independently configurable proxies
+- Date: 2026-11-03
+- Phase: 6
+- Made by: Codex
+- Decision: Add local Proxy 4 (250 ms delay) and Proxy 5 (40% injected failures), with unique gateway/control ports, per-proxy dashboard editing, a latency ladder, a reliability gradient, and a combined preset. Keep per-proxy delay and failure rate bounded and editable.
+- Why: A larger pool with varied behavior makes routing, health scoring, circuit breaking, and recovery easier to demonstrate than a three-node pool.
+- Alternatives considered: Keep three proxies and change only their values; add provider-backed endpoints, which would require a selected provider and protocol/auth support.
+- Consequences: The Phase 6 local test bed binds ports 3131–3132 and 3231–3232 in addition to its existing proxy ports. Phase 1–5 verification scripts retain their three-proxy assumptions; the Docker gateway example now lists all five nodes.
+- Status: Active
