@@ -4,6 +4,61 @@ C++20 / POSIX / epoll forward-proxy gateway that load-balances HTTP, HTTPS (CONN
 of upstream proxies, with per-domain token-bucket scheduling, AIMD concurrency control, five routing policies,
 circuit breakers, health probes, retries, queue timeouts and Prometheus-style metrics.
 
+## Project in brief
+
+This is a self-hosted forward proxy. A client sends a request to the gateway; the gateway chooses one of its configured upstream proxies, forwards the request, and returns the response. It can monitor proxy health, route around failures, limit traffic per destination, and show request and latency metrics. HTTPS uses a CONNECT tunnel, so the gateway relays encrypted traffic without inspecting its contents.
+
+The repository includes a local target server and simulated proxy nodes for safe, repeatable demos. You can also configure reachable external HTTP or SOCKS5 proxies in the dashboard.
+
+## Requirements
+
+- Linux (the gateway uses `epoll`) with a C++20 compiler and CMake 3.16 or newer.
+- Python 3 and Bash for the dashboard and launcher scripts; `nproc` is used to choose the build parallelism.
+- A browser for the dashboard. Chromium/Chrome can open it as an app window; otherwise the UI opens in the default browser.
+- For the local demo, ports `8000`, `8101`, `8102`, `8103`, and `9000` must be available.
+- To run the full CTest end-to-end suite, also install `curl` and the OpenSSL command-line tools.
+
+The launcher scripts build the required binaries automatically.
+
+## Quick start: local demo
+
+From the repository root, run:
+
+```bash
+./scripts/run_local_demo.sh
+```
+
+This builds the project, starts the local target on port `9000` and three simulated proxies on ports `8101`–`8103`, then opens the dashboard with a temporary local-demo configuration. In the dashboard, click **Start**, open **Test request**, and use the default target `http://127.0.0.1:9000/health`. Click **Send** for one request or use **Load test** to send a paced series. The local test proxies have different delays and injected failure rates, so their health and traffic results can be compared.
+
+Press **Ctrl+C** in the terminal running the script to stop the dashboard and the local demo services. The script reports a port conflict if one of its required ports is already listening.
+
+## Quick start: saved real upstream proxies
+
+First, run `python3 app/gateway_ui.py`, then add your proxy endpoints in **Proxies**, including the protocol and any required credentials. Save the configuration and close that dashboard. By default, the dashboard stores it at `~/.config/proxy-gateway/gateway.json`.
+
+Then run:
+
+```bash
+./scripts/run_real_proxy_demo.sh
+```
+
+This builds and starts the gateway with that saved configuration, then opens the dashboard attached to it. The external proxy services must already be running and reachable; this script starts the gateway but cannot start proxy servers hosted by a provider. Press **Ctrl+C** in the script's terminal to close the dashboard and stop the gateway.
+
+To use another saved config file:
+
+```bash
+GATEWAY_CONFIG=/path/to/gateway.json ./scripts/run_real_proxy_demo.sh
+```
+
+For a request through those proxies, open **Test request** and enter a public HTTP URL such as `http://httpbin.org/get`. The dashboard's **Load test** can also use public HTTP hosts on port 80; public runs are capped at 10 requests/second, 60 seconds, and 600 requests. Loopback targets such as `127.0.0.1:9000` require local proxy nodes, because a remote upstream proxy cannot reach your computer's loopback interface.
+
+To stop a gateway left running by another command, find its listener and stop the PID:
+
+```bash
+ss -ltnp 'sport = :8000'
+kill <PID>
+```
+
 ## Features
 | Area | Behaviour |
 |---|---|
@@ -18,15 +73,19 @@ circuit breakers, health probes, retries, queue timeouts and Prometheus-style me
 | Logs | CSV and JSONL are escaped correctly (quotes, commas, control chars, invalid UTF-8) |
 
 ## Build & test
-    mkdir -p build && cd build && cmake .. && make -j$(nproc)
-    ctest --output-on-failure          # unit tests + 19 end-to-end tests (needs python3, curl, openssl)
+    cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+    cmake --build build -j"$(nproc)"
+    ctest --test-dir build --output-on-failure  # unit tests, parser fuzz, and end-to-end suite
 
 Individual suites:
 
     ./build/unit_tests
     python3 scripts/e2e_test.py --build build [--only tls] [--docker]
 
-## Run the local test bed
+## Manual local test bed (optional)
+
+Use this when you want to start the individual demo components yourself instead of using `run_local_demo.sh`. Start each server in a separate terminal, then use the curl commands below.
+
     ./build/target_server --port 9000 &
     ./build/proxy_node --port 8101 --delay-ms 0   --fail-rate 0.0 &
     ./build/proxy_node --port 8102 --delay-ms 100 --fail-rate 0.0 &
@@ -107,9 +166,7 @@ the admin interface, config validation with the gateway itself before saving, ad
 the log. Config lives in `~/.config/proxy-gateway/gateway.json` (mode 600; stored passwords are never shown again). The UI server binds to
 127.0.0.1 only, checks the Host header and requires a per-launch session cookie.
 
-The **Test request** tab also has a paced load test. It sends GET requests through the running gateway and its configured upstream proxies. Loopback targets (for example `http://127.0.0.1:9000/health`) require local proxy nodes and allow 1–250 requested requests/second for 1–120 seconds. Public DNS targets (for example `http://httpbin.org/get`) can use local or real upstream proxies and are capped at 10 requests/second, 60 seconds, and 600 total requests per run. Public targets must resolve to public IP addresses and use HTTP port 80. The dashboard shows scheduled and completed requests, HTTP status counts, success/failure totals, achieved throughput and latency percentiles. Actual throughput depends on gateway capacity, proxy delays and configured limits.
-
-To run the gateway with the saved real upstream proxy endpoints and open the dashboard, run `./scripts/run_real_proxy_demo.sh`. The proxy services must already be reachable; the script builds and starts the gateway, then opens the dashboard using `~/.config/proxy-gateway/gateway.json` (or the path in `GATEWAY_CONFIG`). Public load-test targets can use these configured real proxies under the public-target limits above. A loopback target such as `127.0.0.1:9000` requires local proxy nodes because a remote proxy cannot reach the loopback interface on your computer.
+The **Test request** tab sends one request through the gateway. Its **Load test** panel sends a paced stream and shows throughput, outcomes and latency. See **Quick start: local demo** and **Quick start: saved real upstream proxies** above for run instructions and target limits.
 
 ## File descriptors
 
