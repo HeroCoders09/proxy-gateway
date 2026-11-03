@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Proxy Gateway</title>
+<link rel="icon" href="/icon.svg">
+<style>
+:root{--bg:#f5f6f8;--card:#fff;--ink:#1c2230;--mut:#69728a;--line:#e3e6ee;--acc:#2f6fed;--ok:#1a9d5a;--warn:#c98a00;--bad:#d63a3a;--code:#f0f2f7}
+@media (prefers-color-scheme:dark){:root{--bg:#12151c;--card:#1a1f2a;--ink:#e6e9f2;--mut:#98a1b8;--line:#2a3142;--acc:#6b9bff;--ok:#3ec585;--warn:#e3b341;--bad:#ff6b6b;--code:#10131a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+header{display:flex;align-items:center;gap:14px;padding:12px 20px;background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5;flex-wrap:wrap}
+header img{width:28px;height:28px}
+h1{font-size:16px;margin:0;font-weight:650}
+.status{display:flex;align-items:center;gap:8px;margin-left:8px;color:var(--mut)}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--bad)}
+.dot.on{background:var(--ok)}.dot.warn{background:var(--warn)}
+.sp{flex:1}
+button{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:7px 14px;border-radius:8px;cursor:pointer}
+button:hover{border-color:var(--acc)}
+button.pri{background:var(--acc);border-color:var(--acc);color:#fff}
+button.danger{color:var(--bad)}
+button:disabled{opacity:.45;cursor:default}
+nav{display:flex;gap:2px;padding:0 20px;background:var(--card);border-bottom:1px solid var(--line);overflow-x:auto}
+nav button{border:0;border-bottom:2px solid transparent;border-radius:0;padding:10px 14px;background:none;color:var(--mut)}
+nav button.on{color:var(--ink);border-bottom-color:var(--acc);font-weight:600}
+main{max-width:1100px;margin:0 auto;padding:20px}
+section{display:none}section.on{display:block}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-bottom:16px}
+.tile{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.tile .k{color:var(--mut);font-size:12px}.tile .v{font-size:22px;font-weight:650;font-variant-numeric:tabular-nums;margin-top:2px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:16px}
+.card h2{font-size:14px;margin:0 0 12px}
+table{width:100%;border-collapse:collapse}
+th{text-align:left;color:var(--mut);font-weight:500;font-size:12px;padding:6px 8px;border-bottom:1px solid var(--line)}
+td{padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:middle}
+tr:last-child td{border-bottom:0}
+input,select,textarea{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:7px;padding:6px 9px;width:100%;min-width:0}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--acc);outline-offset:-1px}
+textarea,pre{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px}
+pre{background:var(--code);border:1px solid var(--line);border-radius:8px;padding:12px;overflow:auto;max-height:480px;margin:0;white-space:pre-wrap;word-break:break-all}
+.form{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px 16px}
+label{display:block;color:var(--mut);font-size:12px;margin-bottom:3px}
+.badge{display:inline-block;padding:1px 8px;border-radius:99px;font-size:12px;border:1px solid var(--line)}
+.badge.ok{color:var(--ok);border-color:var(--ok)}.badge.bad{color:var(--bad);border-color:var(--bad)}.badge.warn{color:var(--warn);border-color:var(--warn)}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.hint{color:var(--mut);font-size:12px;margin-top:6px}
+#toast{position:fixed;right:18px;bottom:18px;max-width:460px;background:var(--ink);color:var(--bg);padding:10px 14px;border-radius:9px;opacity:0;transition:opacity .2s;pointer-events:none;white-space:pre-wrap;z-index:9}
+#toast.show{opacity:1}
+#toast.err{background:var(--bad);color:#fff}
+.chart{width:100%;height:90px}
+.empty{color:var(--mut);padding:18px;text-align:center}
+.bar{height:6px;border-radius:3px;background:var(--line);overflow:hidden;min-width:60px}.bar i{display:block;height:100%;background:var(--ok)}
+@media (max-width:640px){main{padding:12px}header{padding:10px 12px}}
+</style>
+</head>
+<body>
+<header>
+  <img src="/icon.svg" alt="">
+  <h1>Proxy Gateway</h1>
+  <div class="status"><span class="dot" id="dot"></span><span id="stext">connecting…</span></div>
+  <div class="sp"></div>
+  <button class="pri" id="bStart">Start</button>
+  <button id="bRestart">Restart</button>
+  <button class="danger" id="bStop">Stop</button>
+</header>
+<nav id="nav">
+  <button data-t="dash" class="on">Dashboard</button>
+  <button data-t="prox">Proxies</button>
+  <button data-t="set">Settings</button>
+  <button data-t="test">Test request</button>
+  <button data-t="logs">Logs</button>
+  <button data-t="adv">Advanced</button>
+</nav>
+<main>
+<section id="dash" class="on">
+  <div id="alert"></div>
+  <div class="grid" id="tiles"></div>
+  <div class="card"><h2>Throughput (req/s) and p99 latency (ms), last 2 minutes</h2>
+    <svg class="chart" id="chart" viewBox="0 0 600 90" preserveAspectRatio="none"></svg>
+    <div class="hint"><span style="color:var(--acc)">&#9632;</span> req/s &nbsp; <span style="color:var(--warn)">&#9632;</span> p99 ms</div></div>
+  <div class="card"><h2>Upstream proxies</h2><div id="ptable"></div></div>
+</section>
+
+<section id="prox">
+  <div class="card"><h2>Upstream proxies</h2>
+    <table><thead><tr><th>Host</th><th style="width:90px">Port</th><th style="width:110px">Protocol</th><th>Username</th><th>Password</th><th>Password env var</th><th style="width:40px"></th></tr></thead>
+    <tbody id="pbody"></tbody></table>
+    <div class="row" style="margin-top:12px"><button id="addProxy">+ Add proxy</button></div>
+    <div class="hint">Each proxy is probed every 2 s by fetching the Health probe URL (Settings) through it. SOCKS5 with username/password is supported. Prefer an env var (e.g. UP_PASS) over a stored password; stored passwords are kept in a 0600 config file and are never shown again. Use SOCKS5 over trusted networks, WireGuard or an SSH tunnel.</div>
+  </div>
+</section>
+
+<section id="set">
+  <div class="card"><h2>Gateway</h2><div class="form" id="f-gw"></div></div>
+  <div class="card"><h2>Concurrency, timeouts and circuit breaker</h2><div class="form" id="f-perf"></div></div>
+  <div class="card"><h2>Rate limits</h2>
+    <div class="form" id="f-rate" style="margin-bottom:12px"></div>
+    <table><thead><tr><th>Domain (host or host:port)</th><th style="width:140px">Rate / s</th><th style="width:140px">Burst</th><th style="width:40px"></th></tr></thead><tbody id="rbody"></tbody></table>
+    <div class="row" style="margin-top:12px"><button id="addRate">+ Add domain limit</button></div></div>
+  <div class="card"><h2>Admin interface (/metrics, /proxies, /health)</h2><div class="form" id="f-adm"></div>
+    <div class="row" style="margin-top:12px"><button id="genTok">Generate admin token file</button></div>
+    <div class="hint">By default the admin paths answer only to this computer. Set a dedicated admin port to move them off the proxy port. Exposing admin to other machines requires a token.</div></div>
+</section>
+
+<section id="test">
+  <div class="card"><h2>Send a request through the gateway</h2>
+    <div class="row"><select id="tMethod" style="width:100px"><option>GET</option><option>POST</option></select>
+      <input id="tUrl" value="http://127.0.0.1:9000/health" style="flex:1"><button class="pri" id="tGo">Send</button></div>
+    <textarea id="tBody" rows="3" placeholder="POST body" style="margin-top:10px"></textarea>
+    <div class="hint">HTTP URLs are sent via the gateway's proxy port. HTTPS uses CONNECT tunnels: <code>curl -x http://127.0.0.1:PORT https://example.com</code></div>
+  </div>
+  <div class="card"><h2>Response</h2><pre id="tOut">No request sent yet.</pre></div>
+</section>
+
+<section id="logs">
+  <div class="card"><div class="row"><h2 style="margin:0">Gateway log</h2><div class="sp"></div>
+    <label style="margin:0"><input type="checkbox" id="follow" checked style="width:auto"> follow</label>
+    <button id="clrLog">Clear</button></div>
+    <pre id="logOut" style="margin-top:12px;max-height:560px"></pre></div>
+</section>
+
+<section id="adv">
+  <div class="card"><h2>Raw configuration (JSON)</h2>
+    <textarea id="raw" rows="26" spellcheck="false"></textarea>
+    <div class="row" style="margin-top:10px"><button id="rawApply">Apply to form</button><span class="hint" id="cfgPath"></span></div>
+    <div class="hint">Secrets already stored are shown as masked and kept unless you replace them.</div></div>
+</section>
+
+<div class="card" id="savebar" style="position:sticky;bottom:12px;display:none;margin:0 20px">
+  <div class="row"><span id="dirty" class="badge warn">Unsaved changes</span><div class="sp"></div>
+  <button id="bValidate">Validate</button><button id="bSave">Save</button><button class="pri" id="bSaveRestart">Save &amp; restart</button></div>
+</div>
+</main>
+<div id="toast"></div>
+
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+const h = (tag, props, ...kids) => { const e = document.createElement(tag);
+  for (const [k,v] of Object.entries(props||{})) { if (k==="class") e.className=v; else if (k.startsWith("on")) e.addEventListener(k.slice(2), v); else if (v!==false && v!=null) e.setAttribute(k, v===true?"":v); }
+  for (const c of kids.flat()) e.append(c instanceof Node ? c : document.createTextNode(c ?? "")); return e; };
+let cfg = {}, dirty = false, state = {}, loaded = false;
+
+function toast(msg, err) { const t=$("#toast"); t.textContent=msg; t.className="show"+(err?" err":""); clearTimeout(t._x); t._x=setTimeout(()=>t.className="",err?7000:3000); }
+async function api(path, body) {
+  const r = await fetch(path, body===undefined ? {} : {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)});
+  if (r.status===403) { toast("Session expired. Re-open the app from its launcher.", true); throw new Error("403"); }
+  return r.json();
+}
+function setDirty(v){ dirty=v; $("#savebar").style.display=v?"block":"none"; }
+
+// ---- tabs
+$("#nav").addEventListener("click", e => { const t=e.target.dataset.t; if(!t) return;
+  document.querySelectorAll("nav button").forEach(b=>b.classList.toggle("on",b===e.target));
+  document.querySelectorAll("section").forEach(s=>s.classList.toggle("on",s.id===t));
+  if (t==="adv") $("#raw").value=JSON.stringify(collect(),null,2); if (t==="logs") refreshLogs(); });
+
+// ---- generic path helpers
+const getp = (o,p) => p.split(".").reduce((a,k)=>a&&a[k],o);
+function setp(o,p,v){ const ks=p.split("."); let a=o; ks.slice(0,-1).forEach(k=>a=(a[k]=a[k]&&typeof a[k]==="object"?a[k]:{})); if(v===undefined||v===""||v===null) delete a[ks.at(-1)]; else a[ks.at(-1)]=v; }
+const FIELDS = {
+ "f-gw":[["listen_port","Proxy listen port","number"],["policy","Routing policy","select",["weighted","latency","least_connections","round_robin","random"]],["max_retries","Max retries","number"],["max_queue_size","Max queue size","number"],["listen_host","Listen address (127.0.0.1 = this computer only; 0.0.0.0 = open proxy!)","text"],["limits.max_client_connections","Max client connections","number"],["limits.pool_max_idle_per_proxy","Idle upstream connections per proxy","number"],["limits.pool_max_idle_total","Idle upstream connections total","number"],["probe_target_url","Health probe URL","text"]],
+ "f-perf":[["workers.min","Min concurrent","number"],["workers.initial","Initial concurrent","number"],["workers.max","Max concurrent","number"],["timeouts.connect_ms","Connect timeout (ms)","number"],["timeouts.response_ms","Response timeout (ms)","number"],["timeouts.probe_interval_ms","Probe interval (ms)","number"],["timeouts.upstream_idle_ms","Upstream idle close (ms)","number"],["circuit.failure_threshold","Circuit: failures to open","number"],["circuit.cooldown_sec","Circuit: cooldown (s)","number"]],
+ "f-rate":[["default_rate_limit.rate","Default rate / s per domain","number"],["default_rate_limit.burst","Default burst","number"]],
+ "f-adm":[["admin.port","Dedicated admin port (0/empty = proxy port)","number"],["admin.listen_host","Admin listen host","text"],["admin.allow_remote","Allow remote admin (needs token)","check"],["admin.token","Admin token","password"],["admin.token_file","Token file path","text"],["admin.token_env","Token env var","text"]],
+};
+function renderFields(){ for (const [id,list] of Object.entries(FIELDS)) { const box=$("#"+id); box.replaceChildren();
+  for (const [path,label,type,opts] of list) { let inp; const val=getp(cfg,path);
+    if (type==="select") inp=h("select",{}, opts.map(o=>h("option",{value:o,selected:o===val},o)));
+    else if (type==="check") inp=h("input",{type:"checkbox",style:"width:auto"}); else inp=h("input",{type});
+    if (type==="check") inp.checked=!!val; else if (type!=="select") inp.value=val??"";
+    inp.dataset.path=path; inp.dataset.type=type; inp.addEventListener("input",()=>setDirty(true));
+    box.append(h("div",{},h("label",{},label),inp)); } } }
+function renderProxies(){ const b=$("#pbody"); b.replaceChildren();
+  (cfg.proxies||[]).forEach((p,i)=>{ const f=(k,type="text",ph="")=>{ const e=h("input",{type,placeholder:ph}); e.value=p[k]??""; e.addEventListener("input",()=>{ p[k]= type==="number" ? (e.value===""?"":Number(e.value)) : e.value; setDirty(true);});
+      if (k==="host"||k==="username") e.addEventListener("change",()=>{ let v=e.value.replace(/[\s\u0000-\u001f]+/g,""); if(k==="host"){ const m=v.match(/^(?:https?:\/\/|socks5h?:\/\/)?([^:\/]+):(\d{1,5})\/?$/); if(m){ v=m[1]; p.port=Number(m[2]); } } e.value=v; p[k]=v; renderProxies(); setDirty(true); }); return e; };
+    const proto=h("select",{},["http","socks5"].map(o=>h("option",{value:o,selected:(p.protocol||"http")===o},o))); proto.addEventListener("change",()=>{p.protocol=proto.value;setDirty(true);});
+    b.append(h("tr",{},h("td",{},f("host","text","proxy host or IP")),h("td",{},f("port","number","port")),h("td",{},proto),h("td",{},f("username")),h("td",{},f("password","password")),h("td",{},f("password_env","text","UP_PASS")),
+      h("td",{},h("button",{class:"danger",title:"Remove",onclick:()=>{cfg.proxies.splice(i,1);renderProxies();setDirty(true);}},"×")))); });
+  if (!(cfg.proxies||[]).length) b.append(h("tr",{},h("td",{colspan:7,class:"empty"},"No proxies yet. Add at least one to start the gateway."))); }
+function renderRates(){ const b=$("#rbody"); b.replaceChildren(); cfg.rate_limits=cfg.rate_limits||{};
+  Object.entries(cfg.rate_limits).forEach(([d,v])=>{ const dom=h("input",{value:d}), rate=h("input",{type:"number",value:v.rate}), burst=h("input",{type:"number",value:v.burst});
+    const upd=()=>{ delete cfg.rate_limits[d]; cfg.rate_limits[dom.value||d]={rate:Number(rate.value),burst:Number(burst.value)}; setDirty(true); };
+    [dom,rate,burst].forEach(x=>x.addEventListener("change",()=>{upd();renderRates();}));
+    b.append(h("tr",{},h("td",{},dom),h("td",{},rate),h("td",{},burst),h("td",{},h("button",{class:"danger",onclick:()=>{delete cfg.rate_limits[d];renderRates();setDirty(true);}},"×")))); });
+  if (!Object.keys(cfg.rate_limits).length) b.append(h("tr",{},h("td",{colspan:4,class:"empty"},"No per-domain limits (default applies).")));}
+function collect(){ const out=JSON.parse(JSON.stringify(cfg)); (out.proxies||[]).forEach(p=>{ if(typeof p.host==="string") p.host=p.host.replace(/[\s\u0000-\u001f]+/g,""); });
+  document.querySelectorAll("[data-path]").forEach(e=>{ let v; if(e.dataset.type==="check") v=e.checked||undefined; else if(e.dataset.type==="number") v=e.value===""?undefined:Number(e.value); else v=e.value; setp(out,e.dataset.path,v); });
+  if (out.admin && !Object.keys(out.admin).length) delete out.admin; if (out.admin && out.admin.port===0) delete out.admin.port; return out; }
+function loadCfg(c){ cfg=c; renderFields(); renderProxies(); renderRates(); setDirty(false); $("#raw").value=JSON.stringify(c,null,2); }
+
+$("#addProxy").onclick=()=>{ (cfg.proxies=cfg.proxies||[]).push({host:"",port:"",protocol:"http"}); renderProxies(); setDirty(true); };
+$("#addRate").onclick=()=>{ cfg.rate_limits=cfg.rate_limits||{}; cfg.rate_limits["example.com"]={rate:50,burst:100}; renderRates(); setDirty(true); };
+$("#rawApply").onclick=()=>{ try{ loadCfg(JSON.parse($("#raw").value)); setDirty(true); toast("Applied to form (not saved yet)"); }catch(e){ toast("Invalid JSON: "+e.message,true);} };
+async function push(path, extra){ const c=collect(); cfg=c; const r=await api(path,{config:c,...extra}); toast(r.message||(r.ok?"ok":"failed"),!r.ok); if(r.ok&&path==="/api/config"){ setDirty(false); poll(true);} return r; }
+$("#bValidate").onclick=async()=>{ const r=await push("/api/validate"); if(r.ok) toast("Configuration is valid"+(r.message?"\n"+r.message:"")); };
+$("#bSave").onclick=()=>push("/api/config");
+$("#bSaveRestart").onclick=()=>push("/api/config",{restart:true});
+$("#genTok").onclick=async()=>{ const r=await api("/api/gen-token",{}); toast(r.message,!r.ok); if(r.ok) poll(true); };
+
+// ---- process control
+async function act(p){ const r=await api(p,{}); toast(r.message,!r.ok); poll(); }
+$("#bStart").onclick=()=>act("/api/start"); $("#bStop").onclick=()=>act("/api/stop"); $("#bRestart").onclick=()=>act("/api/restart");
+
+// ---- test request
+$("#tGo").onclick=async()=>{ $("#tOut").textContent="…"; const r=await api("/api/test",{url:$("#tUrl").value,method:$("#tMethod").value,body:$("#tBody").value});
+  $("#tOut").textContent = r.error ? "Error: "+r.error : `HTTP ${r.status}  (${r.ms} ms)\n\n`+Object.entries(r.headers).map(([k,v])=>k+": "+v).join("\n")+"\n\n"+r.body; };
+
+// ---- logs
+async function refreshLogs(){ const r=await api("/api/logs"); const o=$("#logOut"); o.textContent=r.log||"(empty)"; if($("#follow").checked) o.scrollTop=o.scrollHeight; }
+$("#clrLog").onclick=async()=>{ await api("/api/clear-log",{}); refreshLogs(); };
+
+// ---- dashboard
+const fmt=(n,d=0)=>n==null?"–":Number(n).toLocaleString(undefined,{maximumFractionDigits:d,minimumFractionDigits:d});
+function tile(k,v){ return h("div",{class:"tile"},h("div",{class:"k"},k),h("div",{class:"v"},v)); }
+function chart(hist){ const svg=$("#chart"); svg.replaceChildren(); if(hist.length<2) return;
+  const line=(i,color)=>{ const vals=hist.map(x=>x[i]), mx=Math.max(...vals,1e-9); const pts=vals.map((v,j)=>`${(j/(hist.length-1))*600},${86-(v/mx)*80}`).join(" ");
+    const p=document.createElementNS("http://www.w3.org/2000/svg","polyline"); p.setAttribute("points",pts); p.setAttribute("fill","none"); p.setAttribute("stroke",color); p.setAttribute("stroke-width","2"); p.setAttribute("vector-effect","non-scaling-stroke"); svg.append(p); };
+  line(1,getComputedStyle(document.documentElement).getPropertyValue("--acc")); line(2,getComputedStyle(document.documentElement).getPropertyValue("--warn")); }
+function render(st){ state=st;
+  const dot=$("#dot"), tx=$("#stext");
+  if(!st.binary){ dot.className="dot warn"; tx.textContent="gateway binary not found (build the project)"; }
+  else if(st.running&&st.reachable){ dot.className="dot on"; tx.textContent=`Running · pid ${st.pid} · port ${st.listen_port}`; }
+  else if(st.running){ dot.className="dot warn"; tx.textContent="Running, but admin interface unreachable"; }
+  else { dot.className="dot"; tx.textContent="Stopped"; }
+  $("#bStart").disabled=st.running||!st.binary; $("#bStop").disabled=!st.running; $("#bRestart").disabled=!st.binary;
+  $("#cfgPath").textContent="Config file: "+st.config_path;
+  const al=$("#alert"); al.replaceChildren();
+  if(!(st.config.proxies||[]).length) al.append(h("div",{class:"card"},"Add at least one upstream proxy on the Proxies tab, save, then press Start."));
+  const ps=st.proxies||[];
+  if(st.reachable && ps.length && ps.every(p=>p.failure_count>0&&p.success_count===0)){
+    const probe=(st.config.probe_target_url)||"http://127.0.0.1:9000/health (default)";
+    al.append(h("div",{class:"card",style:"border-color:var(--bad)"},h("b",{},"Every health probe is failing. "),(ps[0]&&ps[0].last_error?h("span",{},"Reason: "+ps[0].last_error+". "):""),
+      "The gateway checks each proxy every 2 s by asking it to fetch the probe URL: ",h("code",{},probe),". It fails if (1) the proxy host/port is wrong or nothing is listening there, (2) the proxy is up but the probe URL is not reachable through it (the default needs ",h("code",{},"./build/target_server --port 9000")," running), or (3) the protocol (http/socks5) is wrong. Fix the proxy on the Proxies tab or set a reachable Health probe URL under Settings, then Save & restart."));
+  }
+  if(st.error) al.append(h("div",{class:"card"},"Admin interface: "+st.error));
+  const m=st.metrics, t=$("#tiles"); t.replaceChildren();
+  if(m){ const L=m.latency||{};
+    t.append(tile("Requests/s",fmt(m.requests_per_second,1)),tile("Total requests",fmt(m.requests_total)),tile("Successful",fmt(m.requests_successful)),tile("Failed",fmt(m.requests_failed)),
+      tile("In flight",fmt(m.active_connections)),tile("Queued",fmt(m.queue_length)),tile("Concurrency limit",fmt(m.worker_count)),tile("Open clients",fmt(m.client_connections)),
+      tile("Idle pooled conns",fmt(m.upstream_idle_connections)),tile("Open files",fmt(m.process_open_fds)+" / "+fmt(m.process_fd_limit)),tile("Active tunnels",fmt(m.active_tunnels)),tile("Timeouts",fmt(m.timeouts)),tile("Latency p50 (ms)",fmt(L["0.50"],1)),tile("Latency p95 (ms)",fmt(L["0.95"],1)),tile("Latency p99 (ms)",fmt(L["0.99"],1))); }
+  else t.append(h("div",{class:"empty",style:"grid-column:1/-1"},"Gateway is stopped. Press Start."));
+  chart(st.history||[]);
+  const pt=$("#ptable"); pt.replaceChildren();
+  if(st.proxies&&st.proxies.length){ const pp=(m&&m.per_proxy)||{};
+    pt.append(h("table",{},h("thead",{},h("tr",{},["Endpoint","Protocol","Health","Circuit","RTT (ms)","Active","OK","Failed","Success rate"].map(x=>h("th",{},x)))),
+      h("tbody",{},st.proxies.map(p=>{ const rate=(pp[p.endpoint]||{}).proxy_success_rate; const tot=p.success_count+p.failure_count; const r=rate!=null&&tot?rate:(tot?p.success_count/tot:null);
+        return h("tr",{},h("td",{},p.endpoint,p.last_error?h("div",{class:"hint",style:"color:var(--bad);max-width:340px"},p.last_error):""),h("td",{},p.protocol),h("td",{},(()=>{ const unv=p.healthy&&p.success_count===0&&p.failure_count>0; return h("span",{class:"badge "+(unv?"bad":p.healthy?"ok":"bad")},unv?"failing":p.healthy?"healthy":"down"); })()),
+          h("td",{},h("span",{class:"badge "+(p.circuit_state==="CLOSED"?"ok":p.circuit_state==="OPEN"?"bad":"warn")},p.circuit_state)),
+          h("td",{},fmt(p.rtt_ms,1)),h("td",{},fmt(p.active_connections)),h("td",{},fmt(p.success_count)),h("td",{},fmt(p.failure_count)),
+          h("td",{},r==null?"–":h("div",{class:"bar"},h("i",{style:`width:${Math.round(r*100)}%`})))); })))); }
+  else pt.append(h("div",{class:"empty"},st.running?"No proxy data yet.":"Start the gateway to see live proxy health.")); }
+async function poll(forceCfg){ try{ const st=await api("/api/state"); if(!loaded||(forceCfg&&!dirty)){ loadCfg(st.config); loaded=true; } render(st); }catch(e){ $("#stext").textContent="UI lost connection"; } }
+poll(); setInterval(poll,1000); setInterval(()=>{ if($("#logs").classList.contains("on")) refreshLogs(); },2000);
+</script>
+</body>
+</html>
