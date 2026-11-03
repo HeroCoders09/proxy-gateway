@@ -4,13 +4,15 @@
 #   proxy1  127.0.0.1:3128   normal
 #   proxy2  127.0.0.1:3129   +100 ms delay
 #   proxy3  127.0.0.1:3130   ~20 percent failures
-#   fault-control ports 3228 / 3229 / 3230
+#   proxy4  127.0.0.1:3131   +250 ms delay
+#   proxy5  127.0.0.1:3132   ~40 percent failures
+#   fault-control ports 3228 through 3232
 # Usage: testbed/run_local.sh start|stop|status
 set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUN="$HERE/.run"
 TARGET_PORT="${TARGET_PORT:-8081}"
-OVERRIDES="test.example=127.0.0.1:$TARGET_PORT,site-a.example=127.0.0.1:$TARGET_PORT,site-b.example=127.0.0.1:$TARGET_PORT"
+OVERRIDES="test.example=127.0.0.1:$TARGET_PORT,site-a.example=127.0.0.1:$TARGET_PORT,site-b.example=127.0.0.1:$TARGET_PORT,northstar.pricelens.test=127.0.0.1:$TARGET_PORT,harbor.pricelens.test=127.0.0.1:$TARGET_PORT,copperlane.pricelens.test=127.0.0.1:$TARGET_PORT"
 mkdir -p "$RUN"
 
 start_one() {  # name, command...
@@ -34,11 +36,13 @@ case "${1:-}" in
     start_one proxy1 env PROXY_ID=proxy1 PORT=3128 CONTROL_PORT=3228 BIND=127.0.0.1 HOST_OVERRIDES="$OVERRIDES" python3 "$HERE/proxies/faultproxy.py"
     start_one proxy2 env PROXY_ID=proxy2 PORT=3129 CONTROL_PORT=3229 BIND=127.0.0.1 HOST_OVERRIDES="$OVERRIDES" DELAY_MS=100 python3 "$HERE/proxies/faultproxy.py"
     start_one proxy3 env PROXY_ID=proxy3 PORT=3130 CONTROL_PORT=3230 BIND=127.0.0.1 HOST_OVERRIDES="$OVERRIDES" FAIL_PCT=20 python3 "$HERE/proxies/faultproxy.py"
+    start_one proxy4 env PROXY_ID=proxy4 PORT=3131 CONTROL_PORT=3231 BIND=127.0.0.1 HOST_OVERRIDES="$OVERRIDES" DELAY_MS=250 python3 "$HERE/proxies/faultproxy.py"
+    start_one proxy5 env PROXY_ID=proxy5 PORT=3132 CONTROL_PORT=3232 BIND=127.0.0.1 HOST_OVERRIDES="$OVERRIDES" FAIL_PCT=40 python3 "$HERE/proxies/faultproxy.py"
     start_one control env CONTROL_BIND=127.0.0.1 CONTROL_PORT=9100 python3 "$HERE/control-service/control_service.py"
-    for p in "$TARGET_PORT" 3128 3129 3130 9100; do
+    for p in "$TARGET_PORT" 3128 3129 3130 3131 3132 9100; do
       wait_port "$p" || { echo "test bed: port $p did not come up (see $RUN/*.log)" >&2; exit 1; }
     done
-    echo "test bed (local mode) is up: target :$TARGET_PORT, proxies :3128 :3129 :3130, control :9100"
+    echo "test bed (local mode) is up: target :$TARGET_PORT, proxies :3128 :3129 :3130 :3131 :3132, control :9100"
     ;;
   stop)
     for f in "$RUN"/*.pid; do

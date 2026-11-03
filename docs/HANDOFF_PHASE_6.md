@@ -5,7 +5,8 @@
 
 ## Implemented so far
 
-- `dashboard/index.html`: light analytics dashboard for RPS, success, latency percentiles, AIMD, queues, proxy health/circuit state, and recent requests; no left navigation rail. Controls cover policy/rate, health awareness, per-proxy test-bed delay/failure settings and presets, load generation and the benchmark. Proxy host/port values are visible but read-only.
+- `dashboard/index.html`: light analytics dashboard for RPS, success, latency percentiles, AIMD, queues, proxy health/circuit state, and recent requests; no left navigation rail. Controls cover policy/rate, health awareness, five per-proxy test-bed delay/failure settings and presets, load generation and the benchmark. Proxy host/port values are visible but read-only.
+- PriceLens scenario: the offer monitor sends checks for five SKUs to three fictional retailer hosts through the gateway. The local target returns deterministic synthetic price/availability data, which appears in the dashboard's Live market watch table. This is not real retailer data.
 - `src/output/result_writer.*`: bounded asynchronous CSV/JSONL writer; last 50 rows are available through `/api/recent`; URLs are redacted before display or persistence; output drops are counted.
 - `src/admin/`: live API reports `stub:false`, active policy, health-awareness state, sampled RPS, recent requests and settings controls. Admin bind remains config-controlled and localhost by default.
 - `src/gateway/` and `src/scheduler/`: runtime policy switch and default rate/burst update.
@@ -17,7 +18,7 @@
 ## Checks run
 
 - `cmake -S . -B build && cmake --build build -j`: passed before the latest dashboard proxy-scenario edits; test binary built, not executed. Rebuild against the current worktree before handoff.
-- Python `py_compile`, dashboard JavaScript `node --check`, and `git diff --check`: passed after the latest dashboard proxy-scenario edits.
+- Python syntax checks for the target, control service, load generator and benchmark; JSON parsing for the demo/Docker configs; shell syntax for the local runner; dashboard JavaScript `node --check`; and `git diff --check`: passed after the five-proxy update.
 - Unit tests, acceptance scripts, dashboard runtime, fault controls, benchmark suite, metrics accuracy, sanitizers and two demo rehearsals: not run yet.
 
 ## Remaining before Phase 6 sign-off
@@ -35,7 +36,8 @@ Phase 5 implementation is available, but its handoff lists unmet high-load throu
 
 ## Scope notes
 
-- The scenario editor controls only the three local test-bed proxies, with bounded delay/failure injection and fixed presets. No external proxy-provider credentials or arbitrary endpoint editing are part of this implementation.
+- The scenario editor controls only the five local test-bed proxies, with bounded delay/failure injection and fixed presets. No external proxy-provider credentials or arbitrary endpoint editing are part of this implementation.
+- Current proxy config supports host/port only. An authorized unauthenticated or IP-allow-listed HTTP provider may be tested using a separate local config; authenticated providers and client HTTPS CONNECT need additional implementation. See I-016.
 - The supplied Design Document is a PDF and the editable SRS/design sources are not in this checkout. D-039 records that specification updates remain needed before final release.
 - No commit or push has been made. The repository owner will review and commit the branch.
 

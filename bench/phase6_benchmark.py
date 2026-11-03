@@ -15,7 +15,7 @@ import urllib.parse
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 OUT = ROOT / "bench/results/phase6_benchmark.csv"
 GATEWAY_PORT, ADMIN_PORT = 18006, 19006
-PROXIES = [3128, 3129, 3130]
+PROXIES = [3128, 3129, 3130, 3131, 3132]
 
 
 def percentile(values, p):
@@ -46,16 +46,23 @@ def request(index):
     return status, elapsed
 
 
-def set_fault(pct):
-    with urllib.request.urlopen(f"http://127.0.0.1:3230/fault?fail_pct={pct}", timeout=3) as r: r.read()
+def set_faults(profile):
+    settings = {"baseline": {p: (0, 0) for p in range(1, 6)},
+                "fault_trial": {p: (0, 0) for p in range(1, 6)}}
+    settings["fault_trial"][3] = (0, 20)
+    for proxy, (delay, failure) in settings[profile].items():
+        port = 3227 + proxy
+        query = urllib.parse.urlencode({"delay_ms": delay, "fail_pct": failure})
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/fault?{query}", timeout=3) as r: r.read()
 
 
 def config(policy="roundrobin", forwarder="epoll", pool=8, fixed=True):
     c=json.loads((ROOT/"config/gateway.local.json").read_text())
+    c["proxies"]=[{"host":"127.0.0.1","port":p} for p in PROXIES]
     c["listen"].update(host="127.0.0.1",port=GATEWAY_PORT)
     c["admin"].update(host="127.0.0.1",port=ADMIN_PORT)
     c["policy"]=policy; c["forwarder"]=forwarder
-    c["forwarder_pool"]={"max_connections_per_proxy":pool,"max_total_connections":pool*3,"idle_timeout_ms":30000}
+    c["forwarder_pool"]={"max_connections_per_proxy":pool,"max_total_connections":pool*len(PROXIES),"idle_timeout_ms":30000}
     c["workers"].update(min=24 if fixed else 4,max=24,alpha=1,beta=.5)
     c["ingress"].update(threads=32,pending_connections=512)
     c["rate_limits"]["default"]={"rate":10000,"burst":10000}
@@ -99,25 +106,25 @@ def one(label, value, health_aware=True, **opts):
 
 def main():
     testbed_owned=False
-    ready=all(reachable(p) for p in [*PROXIES,3228,3229,3230]) and (reachable(8081) or reachable(18080))
+    ready=all(reachable(p) for p in [*PROXIES,3228,3229,3230,3231,3232]) and (reachable(8081) or reachable(18080))
     if not ready:
         subprocess.run([str(ROOT/"testbed/run_local.sh"),"start"],check=True); testbed_owned=True
     elif reachable(GATEWAY_PORT) or reachable(ADMIN_PORT):
         raise SystemExit("benchmark ports 18006/19006 are occupied")
     rows=[]
     try:
-        set_fault(0)
+        set_faults("baseline")
         for policy in ("random","roundrobin","leastconn","latency","weighted"):
             rows.append(one("routing_policy",policy,policy=policy))
         for size in (2,4,8,16): rows.append(one("pool_size",str(size),pool=size))
         rows.append(one("worker_mode","fixed",fixed=True)); rows.append(one("worker_mode","aimd",fixed=False))
         rows.append(one("keep_alive","off_simple",forwarder="simple")); rows.append(one("keep_alive","on_epoll",forwarder="epoll"))
         rows.append(one("health_aware_fault_trial","faults_off",health_aware=True,policy="weighted"))
-        set_fault(20)
+        set_faults("fault_trial")
         rows.append(one("health_aware_fault_trial","faults_on_aware",health_aware=True,policy="weighted"))
         rows.append(one("health_aware_fault_trial","faults_on_unaware",health_aware=False,policy="weighted"))
     finally:
-        set_fault(0)
+        set_faults("baseline")
         if testbed_owned: subprocess.run([str(ROOT/"testbed/run_local.sh"),"stop"],check=False)
     OUT.parent.mkdir(parents=True,exist_ok=True)
     references={"routing_policy":"roundrobin","pool_size":"8","worker_mode":"fixed",

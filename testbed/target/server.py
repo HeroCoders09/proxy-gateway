@@ -21,6 +21,7 @@ import json
 import os
 import threading
 import time
+from urllib.parse import unquote
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 DEFAULT_DELAY_MS = int(os.environ.get("DELAY_MS", "0"))
@@ -43,6 +44,24 @@ def product_body(product_id: str) -> bytes:
         "<html><head><title>Product {0}</title></head>"
         "<body><h1>Product {0}</h1><p>price: {1}.99 USD</p></body></html>\n"
     ).format(product_id, (sum(map(ord, product_id)) % 90) + 10).encode()
+
+
+RETAILERS = {
+    "northstar.pricelens.test": "Northstar",
+    "harbor.pricelens.test": "Harbor Market",
+    "copperlane.pricelens.test": "Copper Lane",
+}
+
+
+def offer(sku: str, host: str) -> dict:
+    retailer = RETAILERS.get(host, "Sample retailer")
+    # Stable per SKU and retailer, but different across stores, so the local demo
+    # can show meaningful comparisons without depending on a live shopping site.
+    store_offset = list(RETAILERS).index(host) * 7 if host in RETAILERS else 0
+    price = 18.0 + ((sum(map(ord, sku)) + store_offset) % 4200) / 100
+    return {"sku": sku, "retailer": retailer, "price": round(price, 2),
+            "currency": "USD", "availability": "in_stock" if (sum(map(ord, sku)) + store_offset) % 4 else "low_stock",
+            "checked_at_unix_ms": int(time.time() * 1000)}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -71,6 +90,12 @@ class Handler(BaseHTTPRequestHandler):
             with _lock:
                 snap = {h: {"total": e["total"], "per_second": dict(e["per_second"])} for h, e in _counts.items()}
             return self._send(200, json.dumps(snap).encode(), "application/json", head)
+
+        if path.startswith("/api/offers/") and len(path) > len("/api/offers/"):
+            sku = unquote(path[len("/api/offers/"):])
+            record(host)
+            body = json.dumps(offer(sku, host)).encode()
+            return self._send(200, body, "application/json", head)
 
         record(host)
         delay = DEFAULT_DELAY_MS

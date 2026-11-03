@@ -25,7 +25,7 @@ tests/e2e/run_phase1_acceptance.sh
 # stop with ./scripts/demo.sh stop
 ```
 
-The dashboard uses the local fault-injecting test proxies. It can change their bounded delay/failure settings, apply named scenarios, switch routing/rate settings, and start the local load generator or benchmark. These are controlled test-bed proxies, not external commercial proxy providers; provider authentication and arbitrary live endpoint changes are outside the current demo scope. See [`docs/DEMO.md`](docs/DEMO.md) for the walkthrough and [`docs/HANDOFF_PHASE_6.md`](docs/HANDOFF_PHASE_6.md) for validation status.
+The PriceLens dashboard monitors synthetic offers across three fictional retailer hosts through the local fault-injecting test proxies. It can change bounded delay/failure settings, apply named scenarios, switch routing/rate settings, and start the offer monitor or benchmark. These are controlled test-bed proxies, not external providers. See [`docs/DEMO.md`](docs/DEMO.md) for the walkthrough, real-proxy constraints, and [`docs/HANDOFF_PHASE_6.md`](docs/HANDOFF_PHASE_6.md) for validation status.
 
 Run by hand:
 
@@ -57,7 +57,7 @@ testbed/run_local.sh stop
 
 ## Ports
 
-8000 gateway client port, 9000 admin and dashboard (localhost only), 9100 control service (Phase 6, test bed only). Test bed: target 18080 (Docker, override with `TARGET_HOST_PORT`) or 8081 (local), proxies 3128 / 3129 / 3130.
+8000 gateway client port, 9000 admin and dashboard (localhost only), 9100 control service (Phase 6, test bed only). Test bed: target 18080 (Docker, override with `TARGET_HOST_PORT`) or 8081 (local), five proxies on 3128–3132 and their fault controls on 3228–3232.
 
 ## Rules for contributors (and AI agents)
 

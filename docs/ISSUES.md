@@ -91,3 +91,9 @@ Bugs, gaps and deferred work that are not fixed yet, with the phase that should 
 - Description: The current Phase 6 implementation has not yet been validated with the unit/sanitizer suites, a dashboard runtime walkthrough, benchmark counter-accuracy review, or two clean-start demo rehearsals.
 - Impact: The dashboard and control paths may still have integration issues; the implementation is not ready to claim Phase 6 acceptance.
 - Status: Open. See `docs/HANDOFF_PHASE_6.md` for the validation checklist and `docs/PROGRESS.md` for the latest recorded checks.
+
+## I-016: Third-party proxy provider integration is not implemented
+- Found in phase: 6   Should be fixed in phase: future demo extension (if a provider is selected)
+- Description: The gateway config accepts proxy host/port, but has no proxy authentication fields. The dashboard's endpoint display is read-only and its delay/failure controls are specific to the bundled local test bed. Client HTTPS CONNECT is also outside the current HTTP-only ingress contract (I-001).
+- Impact: An authorized provider endpoint that accepts unauthenticated/IP-allow-listed HTTP forwarding may be tried via a separate local config, but many commercial providers require authentication or HTTPS tunneling and cannot be demonstrated by this build as-is.
+- Status: Deferred until a provider and its supported protocol/auth model are selected. Never store provider credentials in tracked config or docs.
