@@ -58,24 +58,24 @@ std::vector<ProxyState> GatewayCore::proxies() const {
 
 bool GatewayCore::set_policy(const std::string& policy) {
   if (!is_valid_policy(policy)) return false;
-  std::lock_guard<std::mutex> lock(selection_mu_);
+  std::unique_lock<std::shared_mutex> lock(selection_mu_);
   policy_ = policy;
   router_ = std::make_unique<PolicyRouter>(policy, weights_);
   return true;
 }
 
 std::string GatewayCore::policy() const {
-  std::lock_guard<std::mutex> lock(selection_mu_);
+  std::shared_lock<std::shared_mutex> lock(selection_mu_);
   return policy_;
 }
 
 void GatewayCore::set_health_aware(bool enabled) {
-  std::lock_guard<std::mutex> lock(selection_mu_);
+  std::unique_lock<std::shared_mutex> lock(selection_mu_);
   health_aware_ = enabled;
 }
 
 bool GatewayCore::health_aware() const {
-  std::lock_guard<std::mutex> lock(selection_mu_);
+  std::shared_lock<std::shared_mutex> lock(selection_mu_);
   return health_aware_;
 }
 
@@ -182,26 +182,29 @@ HttpResponse GatewayCore::handle_impl(Job& job, double& upstream_ms) {
     ProxyState selected;
     bool routed = false;
     std::string selected_policy;
+    bool health_aware = false;
+    std::vector<ProxyState> snapshot;
     {
-      // Serialize selection plus reservation so least-connection decisions see every in-flight
-      // selection, even when several worker threads wake at once.
-      std::lock_guard<std::mutex> selection_lock(selection_mu_);
-      std::vector<ProxyState> snapshot;
-      {
-        std::lock_guard<std::mutex> state_lock(proxies_mu_);
-        snapshot = proxies_;
-      }
-      if (!health_aware_) for (auto& proxy : snapshot) proxy.healthy = true;
-      const auto id = router_->select(job, snapshot);
+      std::lock_guard<std::mutex> state_lock(proxies_mu_);
+      snapshot = proxies_;
+    }
+    std::optional<ProxyId> id;
+    {
+      // Protect live policy replacement, while keeping the proxy-state copy and reservation
+      // outside this lock so concurrent requests do not serialize on unrelated state work.
+      std::shared_lock<std::shared_mutex> selection_lock(selection_mu_);
+      health_aware = health_aware_;
+      if (!health_aware) for (auto& proxy : snapshot) proxy.healthy = true;
+      id = router_->select(job, snapshot);
       selected_policy = policy_;
-      if (id) {
-        std::lock_guard<std::mutex> state_lock(proxies_mu_);
-        auto it = std::find_if(proxies_.begin(), proxies_.end(), [id](const auto& p) { return p.id == *id; });
-        if (it != proxies_.end() && (!health_aware_ || it->healthy) && it->circuit_state == CircuitState::Closed) {
-          ++it->active_connections;
-          selected = *it;
-          routed = true;
-        }
+    }
+    if (id) {
+      std::lock_guard<std::mutex> state_lock(proxies_mu_);
+      auto it = std::find_if(proxies_.begin(), proxies_.end(), [id](const auto& p) { return p.id == *id; });
+      if (it != proxies_.end() && (!health_aware || it->healthy) && it->circuit_state == CircuitState::Closed) {
+        ++it->active_connections;
+        selected = *it;
+        routed = true;
       }
     }
 

@@ -453,3 +453,14 @@ Append-only. Number decisions D-001, D-002 and so on. Never edit an old entry; s
 - Alternatives considered: Implement TLS throughout the C++ ingress and worker write path; expose plaintext gateway access beyond loopback.
 - Consequences: The TLS profile protects client-to-gateway transport only. Raw port 8000 remains loopback-published; TLS does not provide HTTPS CONNECT to destination sites. The image built and local handshake passed on 2026-11-03; production deployment still requires a trusted certificate and deliberate bind address.
 - Status: Active
+
+
+## D-046: Reduce Phase 5 hot-path contention and size the test backlog for concurrency validation
+- Date: 2026-11-03
+- Phase: 5 follow-up
+- Made by: Codex
+- Decision: Store bounded latency samples in independently indexed per-slot rings, allow concurrent policy reads with a shared mutex, use an atomic round-robin cursor, and keep proxy snapshots/reservations outside the policy replacement lock. Raise the gateway and local Python test-server listen backlogs to 2,048 for the controlled 1,000-client trial.
+- Why: The original global metric and selection locks serialized requests during the Phase 5 high-concurrency benchmark; the previous 512-entry listen backlogs also constrained the controlled test.
+- Alternatives considered: Accept the 718-active-worker ceiling and measured lock contention; replace the existing worker/forwarder interfaces with a new asynchronous scheduler.
+- Consequences: Policy replacement remains exclusive and safe; normal request selection can proceed concurrently. The bounded sample window remains 4,096 observations. Current benchmark reaches 1,000 active workers with 3.29 ms p95 GatewayCore overhead. The 5,000 requests/s target remains below the Python test-bed ceiling, and raw packet capture remains an environment blocker.
+- Status: Active

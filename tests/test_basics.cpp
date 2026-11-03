@@ -111,4 +111,7 @@ TEST_CASE("metrics are thread safe") {
   }
   for (auto& t : ts) t.join();
   REQUIRE(m.get(Counter::RequestsSuccessful) == 40000);
+  const auto p = m.latency_percentiles();
+  REQUIRE(p.samples == Metrics::kLatencyRing);
+  REQUIRE(p.p95 <= 49.0);
 }

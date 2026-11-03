@@ -36,6 +36,17 @@ start_testbed "${1:-}" || { echo "FAIL test bed did not start"; exit 1; }
 echo "== test-bed fault behaviour (direct requests)"
 "$ROOT/testbed/verify_testbed.sh" || overall=1
 
+# Restore a fault-free three-proxy set after verifying the proxy faults directly. The gateway
+# correctness phase asserts 1,000 successful target requests, so injected 502s/delay would make
+# that assertion measure the fault fixture rather than ingress/forwarder correctness.
+if curl -fsS "http://127.0.0.1:3229/fault?delay_ms=0" >/dev/null && \
+   curl -fsS "http://127.0.0.1:3230/fault?fail_pct=0" >/dev/null; then
+  echo "PASS cleared proxy faults for gateway correctness checks"
+else
+  echo "FAIL could not restore proxy fault baseline"
+  overall=1
+fi
+
 echo "== gateway end to end"
 start_gateway || { echo "FAIL gateway did not start"; exit 1; }
 GW_PID="$GW_PID" TARGET_PORT="$TARGET_DIRECT_PORT" python3 "$ROOT/tests/e2e/phase1_checks.py" || overall=1

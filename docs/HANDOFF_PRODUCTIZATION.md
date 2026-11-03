@@ -2,8 +2,8 @@
 
 - Branch: `codex/real-world-gateway`
 - Started: 2026-11-03
-- Status: Self-hosted HTTP outbound gateway MVP implemented and verified. No commit or push made.
-- Parent status: Phase 6 software acceptance is complete (see `docs/HANDOFF_PHASE_6.md`); Phase 5 performance acceptance and final project sign-off remain open.
+- Status: Self-hosted HTTP outbound gateway MVP implemented and verified; committed locally as `74c8577`. The branch has not been pushed.
+- Parent status: Phase 6 software acceptance is complete (see `docs/HANDOFF_PHASE_6.md`); Phase 5 throughput is measured below target and its required tcpdump artifact remains blocked by missing capture capability (I-014); final project sign-off remains open.
 
 ## Implemented in this first slice
 

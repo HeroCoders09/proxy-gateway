@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <mutex>
 #include <random>
 #include <string>
@@ -17,8 +18,8 @@ class PolicyRouter final : public Router {
  private:
   std::string policy_;
   WeightsCfg weights_;
-  std::mutex mu_;
-  size_t rr_index_ = 0;
+  std::mutex rng_mu_;
+  std::atomic<size_t> rr_index_{0};
   std::mt19937 rng_;
 };
 

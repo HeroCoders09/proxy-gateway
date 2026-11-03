@@ -5,6 +5,7 @@
 #include <vector>
 #include <memory>
 #include <mutex>
+#include <shared_mutex>
 #include <unordered_map>
 
 #include "common/config.hpp"
@@ -46,7 +47,7 @@ class GatewayCore : public HealthReporter {
   std::vector<ProxyState> proxies_;
   std::unordered_map<ProxyId, RollingStats> rolling_;
   std::unordered_map<ProxyId, std::unique_ptr<CircuitBreaker>> breakers_;
-  mutable std::mutex selection_mu_;
+  mutable std::shared_mutex selection_mu_;
 };
 
 }  // namespace pg

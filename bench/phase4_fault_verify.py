@@ -84,6 +84,7 @@ def main():
     gateway = None
     config_path = pathlib.Path(tempfile.gettempdir()) / "pg-phase4-health.json"
     cfg = json.loads((ROOT / "config/gateway.local.json").read_text())
+    cfg["forwarder"] = os.environ.get("PHASE5_FORWARDER", "epoll")
     cfg["listen"]["port"] = GATEWAY_PORT
     cfg["admin"]["port"] = ADMIN_PORT
     cfg["timeouts"]["response_ms"] = 400

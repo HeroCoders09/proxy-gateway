@@ -125,7 +125,7 @@ class Handler(BaseHTTPRequestHandler):
 
 class Server(ThreadingHTTPServer):
     daemon_threads = True
-    request_queue_size = 512
+    request_queue_size = 2048
 
 
 if __name__ == "__main__":

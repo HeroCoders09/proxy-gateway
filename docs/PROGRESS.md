@@ -3,10 +3,10 @@
 Newest entries at the bottom of the Log. Times are UTC.
 
 ## Current state (keep this block up to date)
-- Current phase: Phase 6 software acceptance complete; Phase 5 performance acceptance and whole-project sign-off remain open
+- Current phase: Phase 6 software acceptance complete; Phase 5 measured checks are complete with raw packet capture still blocked; whole-project sign-off remains open
 - Current owner: Codex
 - Branch: `codex/real-world-gateway`
-- Last green validation: 2026-11-03 normal and ASan/UBSan CTest suites passed (96 cases each); Phase 6 runtime, benchmark, local/Docker controls and rehearsals are recorded in `docs/HANDOFF_PHASE_6.md`
+- Last green validation: 2026-11-03 normal and ASan/UBSan CTest suites passed (96 cases each); Phase 1–4 regressions and the final Phase 5 benchmark passed their recorded checks. See `docs/HANDOFF_PHASE_5.md` and `docs/HANDOFF_PHASE_6.md`.
 - Command that shows current state: `git status --short --branch && cmake -S . -B build && cmake --build build -j && ./build/pg_tests`
 
 ### Phase status tracker (mirror of handbook 10.3)
@@ -17,7 +17,7 @@ Newest entries at the bottom of the Log. Times are UTC.
 | 2 | Scheduling and concurrency | Phase 2 owner | Done | `docs/HANDOFF_PHASE_2.md` |
 | 3 | Routing and retries | Phase 3 owner | Done | `docs/HANDOFF_PHASE_3.md` |
 | 4 | Health and fault tolerance | Codex | Done | `docs/HANDOFF_PHASE_4.md` |
-| 5 | Fast network I/O | Codex | Implemented; acceptance open | `docs/HANDOFF_PHASE_5.md` |
+| 5 | Fast network I/O | Codex | Measured acceptance complete; tcpdump artifact blocked | `docs/HANDOFF_PHASE_5.md` |
 | 6 | Dashboard, metrics, benchmarks, demo | Codex | Software acceptance complete | `docs/HANDOFF_PHASE_6.md` |
 
 ## Open questions
@@ -29,19 +29,18 @@ Newest entries at the bottom of the Log. Times are UTC.
 - 2026-11-02 Phase 5 start: Created branch `phase-5-epoll-io` from the Phase 4-complete `main`. Revalidated normal and ASan/UBSan suites (88 cases / 1,401 assertions each), local smoke, Phase 2 rate/AIMD, Phase 3 retry, and Phase 4 fault verification before Phase 5 work. The Phase 4 report was refreshed with this run's measurements. Reviewed Phase 5 requirements and existing forwarder/config/parser interfaces; implementation has not started yet. Open scope question: whether to add HTTPS CONNECT tunneling, tracked as I-001.
 - 2026-11-02 Phase 5 remaining checks: Added strict `forwarder_pool` configuration for per-proxy/global caps and idle timeout (D-032), plus bounded GatewayCore overhead percentiles in `/api/stats` and `/metrics` (D-033). Added multi-request pool reuse, four-connection concurrency cap, peer-close recovery, idle eviction, timeout and FD-balance tests. D-035 evicts the oldest idle socket when global capacity is needed. Updated the local Python proxy to set `TCP_NODELAY` after measuring a 42 ms persistent-response artifact (D-034). Final normal and ASan/UBSan suites pass (93 cases / 1,489 assertions each); Phase 2 rate/AIMD, Phase 3 retry and Phase 4 fault verifiers pass with epoll selected. Benchmark results: sequential epoll p95 1.86 ms vs simple 2.19 ms (1,000 samples); epoll throughput 1,448 req/s at concurrency 32 vs simple 1,005 req/s; 1,000 clients completed but peaked at 718 active workers and 29.7 MiB gateway RSS; core overhead p95 was 0.16 ms at concurrency 32 and 22.43 ms in the 1,000-client run. Direct target/proxy throughput was 2,705/1,468 req/s. Measurements are in `bench/results/phase5_performance.md` and `.json`. `strace` evidence shows one upstream connect and two requests sharing that fd in `bench/results/phase5_reuse_syscalls.txt`; raw tcpdump capture was denied by missing capture permission (I-014).
 
-## Phase 5 stop entry
-- Done: Branch `phase-5-epoll-io`; HTTP-only scope confirmed; epoll reactor, bounded/configurable keep-alive pool, metrics, concurrency/eviction/reset/timeout/FD tests, sanitizer checks, epoll smoke and Phase 2–4 runtime verifiers are complete. Benchmark report and syscall trace are recorded.
-- Half done: Performance thresholds remain unmet or incomplete: 5,000 req/s, 1,000 active workers, overhead <=5 ms under the 1,000-client load, and raw tcpdump evidence.
-- Next steps: Optimize high-load overhead/concurrency; repeat tcpdump capture in an environment with `CAP_NET_RAW`/`CAP_NET_ADMIN`; then rerun the benchmark and complete the Phase 5 handoff.
-- Known problems: I-004 / I-007 / I-009 / I-010 / I-011 / I-013 / I-014 remain open or partially resolved as recorded in `docs/ISSUES.md`; the 5,000 req/s, 1,000 in-flight and high-load overhead targets are not met on this Python test bed.
-- How to resume / see current state: `git status --short --branch && cmake -S . -B build && cmake --build build -j && ./build/pg_tests`
+## Phase 5 follow-up stop entry (2026-11-03)
+- Done: Reduced shared metrics/routing contention; raised local listen backlogs for the controlled 1,000-client scenario; made the Phase 1 epoll acceptance run clear injected faults after separately verifying them. Normal and ASan/UBSan suites, Phase 1 end-to-end, and Phase 2–4 verifiers pass. Final benchmark shows 1,000 active workers, 31.4 MiB peak RSS, 3.29 ms p95 GatewayCore overhead, and 2.50 ms epoll sequential p95 versus 2.87 ms simple (median of three runs).
+- Measured miss: Throughput is 1,684 requests/s at concurrency 32, below 5,000; Python target/proxy direct baselines are 1,651/904 requests/s.
+- Remaining artifact: Raw loopback tcpdump capture is unavailable because the environment lacks `CAP_NET_RAW`/`CAP_NET_ADMIN` (I-014). The syscall trace and reuse counters are supplemental evidence only.
+- How to close: Run `python3 bench/phase5_benchmark.py` on a capture-capable host to produce `bench/results/phase5_keepalive.pcap`. See `docs/HANDOFF_PHASE_5.md`.
 - 2026-11-02 Phase 6 start: Created `phase-6-dashboard` from the Phase 5 branch while preserving the clean worktree. Added live dashboard/admin integration, dynamic routing/rate/health-awareness controls, bounded background CSV/JSONL output with URL redaction, localhost-only test-bed controls, load-generator and benchmark runners, demo config/script, and interim handoff. Final C++ build, Python syntax compilation, dashboard JavaScript syntax check and `git diff --check` pass; the unit-test binary was built but tests and runtime checks have not been run. Phase 5 performance acceptance remains open.
 - 2026-11-03 Dashboard interaction update: Removed the left navigation rail and added editable per-test-proxy delay/failure settings plus one-click baseline, delay, flaky-proxy and combined presets. Proxy endpoints are shown from live gateway state and remain read-only; fault changes call the localhost-only control service. Python and dashboard JavaScript syntax checks and `git diff --check` pass; UI runtime walkthrough is still pending. Local test-bed shutdown now resumes a paused Proxy 3 before stopping it.
 
 ## Phase 6 acceptance stop entry (2026-11-03)
-- Done: Phase 6 software acceptance checks completed on `codex/real-world-gateway`; see `docs/HANDOFF_PHASE_6.md`. Changes remain uncommitted for owner review.
+- Done: Phase 6 software acceptance checks completed and included in commit `74c8577`; see `docs/HANDOFF_PHASE_6.md`. Phase 5 follow-up is recorded in `docs/HANDOFF_PHASE_5.md`.
 - Verified: normal and ASan/UBSan suites (96 cases each), live dashboard/API and controls, Docker proxy controls, 16 benchmark scenarios with exact request-counter deltas, privacy check, and two clean-start local rehearsals.
-- Remaining for full project sign-off: Phase 5 high-load targets and tcpdump evidence, plus editable specification updates/source reconciliation (D-039/I-013). Phase 6 controls exercise bundled test proxies only.
+- Remaining for full project sign-off: Phase 5 throughput target miss and tcpdump artifact (I-014), plus editable specification updates/source reconciliation (D-039/I-013). Phase 6 controls exercise bundled test proxies only.
 - Runtime state: local demo and Docker test-bed services stopped after checks.
 - How to resume / see current state: `git status --short --branch`; see `docs/HANDOFF_PHASE_6.md` for reproducible commands and evidence.
 - 2026-11-02 Phase 5 handoff: Wrote `docs/HANDOFF_PHASE_5.md` as an interim handoff at Gourav's request. It documents implementation and test evidence, the unmet 1,000-active-request/high-load overhead targets, and the missing raw packet trace. No commit was made; Phase 5 is not marked complete.
@@ -94,7 +93,7 @@ Newest entries at the bottom of the Log. Times are UTC.
 - Verified: Full unit suite passes; local and Docker TLS demos return expected 407/403/200 outcomes; TLS image builds and runtime handshake succeed; Docker gateway compiles with GCC 11.4. Test services stopped after verification.
 - Next steps: Add destination-IP policy before internet-facing deployment; add TLS to provider connections if provider credentials traverse an untrusted network. Phase 6 software acceptance is recorded in `docs/HANDOFF_PHASE_6.md`.
 - Known problems: Hostname allowlists cannot validate target DNS results because resolution is delegated to upstream proxies (I-017). Upstream provider credentials travel over plaintext HTTP. Client CONNECT remains out of scope (I-001). Keep admin and raw gateway ports restricted.
-- Handoff: `docs/HANDOFF_PRODUCTIZATION.md`. No commit or push was made.
+- Handoff: `docs/HANDOFF_PRODUCTIZATION.md`; productization is included in local commit `74c8577`.
 - 2026-11-03 productization: Authenticated egress control, optional client TLS deployment, provider Basic auth, local/Docker runtime validation, and cleanup behavior completed on `codex/real-world-gateway`.
 
 - 2026-11-03 Documentation update: README, Phase 6 handoff, demo guide and interface reference now describe the current dashboard controls, local test-bed scope and outstanding acceptance evidence. No commit or push was made.
@@ -102,3 +101,5 @@ Newest entries at the bottom of the Log. Times are UTC.
 - 2026-11-03 Five-proxy demo update: Expanded the Phase 6 test bed and demo gateway config to five proxies, added Proxy 4 (250 ms delay) and Proxy 5 (40% failure injection), individual controls, and latency/reliability/mixed presets. Ports 3131–3132 and 3231–3232 are now used in local and Docker modes. Python, JSON, shell, dashboard JavaScript syntax checks and `git diff --check` pass; local and Docker runtime validation is recorded in `docs/HANDOFF_PHASE_6.md`.
 
 - 2026-11-03 Phase 6 acceptance: Normal and ASan/UBSan suites passed (96 cases each); local dashboard/API and controls, Docker fault controls, 16 benchmark scenarios with exact counter agreement, output privacy, and two clean-start rehearsals passed. Docker control stop/restore timeout and readiness handling were fixed and retested. Phase 6 software acceptance is complete; Phase 5 targets/evidence and source-specification reconciliation remain open. No commit or push was made.
+
+- 2026-11-03 Phase 5 acceptance follow-up: Reduced serialized metric and routing selection work; local backlogs increased to support full concurrency. Normal and ASan/UBSan suites pass (96 cases each); Phase 1 end-to-end passes with epoll after direct fault tests are reset; Phase 2 rate/AIMD, Phase 3 retry and Phase 4 circuit verifiers pass. Final benchmark: epoll 1,684 req/s at concurrency 32 (5,000 target missed; Python target/proxy direct 4,427/2,196 req/s), p95 core overhead 3.29 ms at 1,000 active jobs, 31.4 MiB RSS, sequential p95 1.26 ms vs simple 1.48 ms, and 32 opened/3,468 reused connections. `tcpdump` remains blocked because this environment lacks capture capabilities (I-014). Follow-up changes are local to `codex/real-world-gateway`; the branch has not been pushed.

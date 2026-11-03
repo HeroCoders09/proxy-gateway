@@ -42,7 +42,7 @@ Bugs, gaps and deferred work that are not fixed yet, with the phase that should 
 - Found in phase: 1   Should be fixed in phase: 5 (report), 6
 - Description: D-011. The 5,000 requests per second target is measured against the "local test server"; a Python target and Python proxies may cap the result before the gateway does.
 - Impact: Risk of misattributing a bottleneck. Phase 5 direct measurements show the Python proxy is the limiter; throughput remains below target.
-- Status: Measured in Phase 5; 500 direct-target requests reached 2,705/s and direct proxy requests reached 1,468/s, while epoll gateway reached 1,448/s. See `bench/results/phase5_performance.md`. Consider an nginx target/proxy for future target-isolation work.
+- Status: Measured 2026-11-03; in the final Phase 5 run direct Python target reached 4,427/s, direct proxy 2,196/s, and epoll gateway 1,684/s at concurrency 32. The 5,000/s goal remains missed on this test-bed path. See `bench/results/phase5_performance.md`; consider a native target/proxy for isolating gateway capacity.
 
 ## I-008: Blocking `getaddrinfo` per request in the Phase 1 forwarder
 - Found in phase: 1   Should be fixed in phase: 5
@@ -82,9 +82,9 @@ Bugs, gaps and deferred work that are not fixed yet, with the phase that should 
 
 ## I-014: Raw loopback packet capture is unavailable in the current environment
 - Found in phase: 5   Should be fixed in phase: 5 (run on a host with capture capability)
-- Description: `tcpdump -i lo` exits with `Operation not permitted`; `sudo` requires a password that is not available to this session.
-- Impact: The required packet-level SYN/keep-alive trace could not be saved. `bench/results/phase5_reuse_syscalls.txt` provides supplemental evidence: one upstream `connect()` and two requests on the same descriptor.
-- Status: Environment blocker; capture remains to be repeated on a host with `CAP_NET_RAW` or `CAP_NET_ADMIN`.
+- Description: The final Phase 5 benchmark ran with local-network access but `tcpdump -i lo` still exited with `Operation not permitted`; this runtime has no `CAP_NET_RAW`/`CAP_NET_ADMIN`.
+- Impact: The required packet-level SYN/keep-alive trace could not be saved. `bench/results/phase5_reuse_syscalls.txt` provides supplemental syscall evidence, and the latest benchmark recorded 32 opened plus 3,468 reused upstream connections.
+- Status: Open environment blocker; rerun the benchmark on a host with `CAP_NET_RAW` or `CAP_NET_ADMIN` to create `bench/results/phase5_keepalive.pcap`.
 
 ## I-015: Phase 6 runtime acceptance and demo rehearsals are pending
 - Found in phase: 6   Should be fixed in phase: 6 (before sign-off)

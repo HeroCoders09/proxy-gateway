@@ -7,6 +7,7 @@ import os
 import pathlib
 import signal
 import socket
+import statistics
 import subprocess
 import time
 
@@ -202,10 +203,17 @@ def run_mode(mode, capture=None):
             else:
                 capture_result = {"captured": True, "path": str(capture)}
 
-        sequential = [request(GATEWAY_PORT, 100000 + i) for i in range(1000)]
-        if any(status != 200 for status, _, _ in sequential):
-            raise RuntimeError(f"{mode} sequential sample had a failed request")
-        seq_p95 = percentile([r[2] for r in sequential], 0.95)
+        sequential_runs = []
+        for run in range(3):
+            sequential = [request(GATEWAY_PORT, 100000 + run * 1000 + i) for i in range(1000)]
+            if any(status != 200 for status, _, _ in sequential):
+                raise RuntimeError(f"{mode} sequential sample had a failed request")
+            sequential_runs.append({
+                "p50": percentile([r[2] for r in sequential], 0.50),
+                "p95": percentile([r[2] for r in sequential], 0.95),
+            })
+        seq_p50 = statistics.median(sample["p50"] for sample in sequential_runs)
+        seq_p95 = statistics.median(sample["p95"] for sample in sequential_runs)
         throughput = parallel_requests(GATEWAY_PORT, 500, 32)
         stats = admin_stats()
         if tcpdump:
@@ -214,8 +222,9 @@ def run_mode(mode, capture=None):
             tcpdump = None
         return {
             "forwarder": mode,
-            "sequential_requests": 1000,
-            "sequential_latency_p50_ms": percentile([r[2] for r in sequential], 0.50),
+            "sequential_requests": 3000,
+            "sequential_repetitions": sequential_runs,
+            "sequential_latency_p50_ms": seq_p50,
             "sequential_latency_p95_ms": seq_p95,
             "parallel": throughput,
             "gateway_overhead_ms": stats.get("gateway_overhead_ms", {}),
@@ -263,7 +272,7 @@ def main():
         proc, log = start_gateway("epoll", workers=1050, per_proxy=1050, total=1050)
         try:
             output["concurrency_1000"] = parallel_requests(
-                GATEWAY_PORT, 1000, 1000, delay_ms=150, observe=gateway_observer(proc))
+                GATEWAY_PORT, 1000, 1000, delay_ms=2000, observe=gateway_observer(proc))
             stats = admin_stats()
             output["concurrency_1000"].update({
                 "observed_upstream_connections": stats.get("upstream_active_connections", 0),
@@ -286,6 +295,8 @@ def main():
     reused = epoll["upstream_connections_reused"]
     reuse_ratio = reused / (opened + reused) if opened + reused else 0.0
     capture = epoll["reuse_trace"]
+    capture_note = ("saved to `" + capture.get("path", "") + "`" if capture.get("captured")
+                    else "unavailable: " + " ".join(capture.get("reason", "capture unavailable").split()))
     report = [
         "# Phase 5 performance results",
         "",
@@ -296,12 +307,12 @@ def main():
         f"- Direct target throughput: {output['target_direct']['requests_per_second']:.1f} requests/s (500 requests, concurrency 32).",
         f"- Direct proxy throughput (new client connection per request): {output['proxy_direct']['requests_per_second']:.1f} requests/s.",
         f"- Direct proxy keep-alive: p50 {output['proxy_keepalive_direct']['latency_p50_ms']:.2f} ms, p95 {output['proxy_keepalive_direct']['latency_p95_ms']:.2f} ms.",
-        f"- Gateway simple: p95 latency {simple['sequential_latency_p95_ms']:.2f} ms; throughput {simple['parallel']['requests_per_second']:.1f} requests/s at concurrency 32.",
-        f"- Gateway epoll: p95 latency {epoll['sequential_latency_p95_ms']:.2f} ms; throughput {epoll['parallel']['requests_per_second']:.1f} requests/s at concurrency 32.",
+        f"- Gateway simple: sequential p95 latency {simple['sequential_latency_p95_ms']:.2f} ms (median of 3 x 1,000-request runs); throughput {simple['parallel']['requests_per_second']:.1f} requests/s at concurrency 32.",
+        f"- Gateway epoll: sequential p95 latency {epoll['sequential_latency_p95_ms']:.2f} ms (median of 3 x 1,000-request runs); throughput {epoll['parallel']['requests_per_second']:.1f} requests/s at concurrency 32.",
         f"- Epoll GatewayCore overhead: p95 {epoll['gateway_overhead_ms'].get('p95', 0):.2f} ms at concurrency 32; p95 {load['gateway_overhead_ms'].get('p95', 0):.2f} ms during the 1,000-request trial.",
         f"- Epoll reuse: {opened} sockets opened and {reused} reused ({reuse_ratio:.1%} reuse events among measured opens and reuses).",
         f"- Concurrency trial: {load['requests']} requests submitted with {load['concurrency']} clients; {load['requests_per_second']:.1f} requests/s; peak active gateway workers {load['max_active_workers']}; peak gateway RSS {load['peak_gateway_rss_kb'] / 1024:.1f} MiB.",
-        f"- Packet capture: {'saved to `' + capture.get('path', '') + '`' if capture.get('captured') else 'unavailable: ' + capture.get('reason', 'capture unavailable')}.",
+        f"- Packet capture: {capture_note}.",
         "- Supplemental reuse syscall trace: `bench/results/phase5_reuse_syscalls.txt` records one upstream `connect()` and two request writes on the same descriptor in the two-request reuse test.",
         "",
         "## Acceptance against handbook targets",
@@ -312,7 +323,7 @@ def main():
         f"- Memory <= 256 MiB at 1,000 clients: {'PASS' if load['peak_gateway_rss_kb'] <= 256 * 1024 else 'MISS'}; measured peak gateway RSS was {load['peak_gateway_rss_kb'] / 1024:.1f} MiB.",
         f"- Keep-alive lower latency than connection-per-request: {'PASS' if epoll['sequential_latency_p95_ms'] < simple['sequential_latency_p95_ms'] else 'MISS'} in the gateway comparison.",
         "",
-        "The 1,000-client trial completed its requests, but the measured peak active workers did not reach 1,000. RSS is the gateway process's `/proc/<pid>/status` VmRSS peak. The overhead metric subtracts forwarder-attempt duration from `GatewayCore::handle` and excludes queueing before the core and client response writes. The proxy throughput figure identifies the Python fault proxy as a material bottleneck.",
+        (f"The 1,000-client trial completed its requests and observed a peak of {load['max_active_workers']} active gateway workers. The controlled target delay is 2,000 ms to keep requests in flight while the client batch starts. RSS is the gateway process's `/proc/<pid>/status` VmRSS peak. The overhead metric subtracts forwarder-attempt duration from `GatewayCore::handle` and excludes ingress queueing and client response writes. The Python target and fault proxy cap the local throughput baseline; the recorded direct measurements show their current ceiling."),
     ]
     (RESULTS / "phase5_performance.md").write_text("\n".join(report) + "\n")
     print(json.dumps(output, indent=2))

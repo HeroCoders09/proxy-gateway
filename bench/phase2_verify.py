@@ -4,6 +4,7 @@ import concurrent.futures, http.client, json, os, subprocess, sys, time
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 cfg_path = "/tmp/pg-phase2-bench.json"
 cfg = json.load(open(os.path.join(ROOT, "config/gateway.local.json")))
+cfg["forwarder"] = os.environ.get("PHASE5_FORWARDER", "epoll")
 cfg["listen"]["port"] = 18000; cfg["admin"]["port"] = 19000
 # Keep this Phase 2 regression check independent of Phase 3 policy selection and the deliberately
 # failing/slow proxies. The test injects its own fault on proxy1 for the AIMD check below.

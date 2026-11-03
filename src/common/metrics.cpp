@@ -22,23 +22,34 @@ int64_t Metrics::get(Gauge g) const {
 }
 
 void Metrics::observe_latency_ms(double ms) {
-  std::lock_guard<std::mutex> lk(mu_);
-  if (ring_.size() < kLatencyRing) {
-    ring_.push_back(ms);
-  } else {
-    ring_[next_] = ms;
-    next_ = (next_ + 1) % kLatencyRing;
-  }
+  ring_.observe(ms);
 }
 
 void Metrics::observe_gateway_overhead_ms(double ms) {
-  std::lock_guard<std::mutex> lk(mu_);
-  if (overhead_ring_.size() < kLatencyRing) {
-    overhead_ring_.push_back(ms);
-  } else {
-    overhead_ring_[overhead_next_] = ms;
-    overhead_next_ = (overhead_next_ + 1) % kLatencyRing;
+  overhead_ring_.observe(ms);
+}
+
+void Metrics::SampleRing::observe(double ms) {
+  const uint64_t ticket = next_.fetch_add(1, std::memory_order_relaxed);
+  const size_t slot = static_cast<size_t>(ticket % kLatencyRing);
+  std::lock_guard<std::mutex> lock(slot_mutexes_[slot]);
+  if (ticket + 1 > sequence_[slot]) {
+    values_[slot] = ms;
+    sequence_[slot] = ticket + 1;
   }
+}
+
+std::vector<double> Metrics::SampleRing::snapshot() const {
+  const uint64_t end = next_.load(std::memory_order_relaxed);
+  const uint64_t begin = end > kLatencyRing ? end - kLatencyRing : 0;
+  std::vector<double> result;
+  result.reserve(static_cast<size_t>(end - begin));
+  for (uint64_t ticket = begin; ticket < end; ++ticket) {
+    const size_t slot = static_cast<size_t>(ticket % kLatencyRing);
+    std::lock_guard<std::mutex> lock(slot_mutexes_[slot]);
+    if (sequence_[slot] == ticket + 1) result.push_back(values_[slot]);
+  }
+  return result;
 }
 
 static double nearest_rank(const std::vector<double>& sorted, double p) {
@@ -50,11 +61,7 @@ static double nearest_rank(const std::vector<double>& sorted, double p) {
 }
 
 LatencyPercentiles Metrics::latency_percentiles() const {
-  std::vector<double> copy;
-  {
-    std::lock_guard<std::mutex> lk(mu_);
-    copy = ring_;
-  }
+  std::vector<double> copy = ring_.snapshot();
   std::sort(copy.begin(), copy.end());
   LatencyPercentiles out;
   out.samples = copy.size();
@@ -65,11 +72,7 @@ LatencyPercentiles Metrics::latency_percentiles() const {
 }
 
 LatencyPercentiles Metrics::gateway_overhead_percentiles() const {
-  std::vector<double> copy;
-  {
-    std::lock_guard<std::mutex> lk(mu_);
-    copy = overhead_ring_;
-  }
+  std::vector<double> copy = overhead_ring_.snapshot();
   std::sort(copy.begin(), copy.end());
   LatencyPercentiles out;
   out.samples = copy.size();

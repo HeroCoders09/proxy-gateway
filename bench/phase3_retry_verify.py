@@ -25,6 +25,7 @@ def main():
     subprocess.run([str(ROOT / "testbed/run_local.sh"), "stop"], check=False, stdout=subprocess.DEVNULL)
     subprocess.run([str(ROOT / "testbed/run_local.sh"), "start"], check=True)
     cfg = json.loads((ROOT / "config/gateway.local.json").read_text())
+    cfg["forwarder"] = os.environ.get("PHASE5_FORWARDER", "epoll")
     cfg["listen"]["port"] = 18001
     cfg["admin"]["port"] = 19001
     cfg["timeouts"]["response_ms"] = 500

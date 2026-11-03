@@ -21,15 +21,13 @@ std::optional<ProxyId> PolicyRouter::select(const Job& job, const std::vector<Pr
   }
   if (eligible.empty()) return std::nullopt;
 
-  std::lock_guard<std::mutex> lock(mu_);
   if (policy_ == "random") {
+    std::lock_guard<std::mutex> lock(rng_mu_);
     std::uniform_int_distribution<size_t> pick(0, eligible.size() - 1);
     return eligible[pick(rng_)]->id;
   }
   if (policy_ == "roundrobin") {
-    const auto* selected = eligible[rr_index_ % eligible.size()];
-    ++rr_index_;
-    return selected->id;
+    return eligible[rr_index_.fetch_add(1, std::memory_order_relaxed) % eligible.size()]->id;
   }
   if (policy_ == "leastconn") {
     return (*std::min_element(eligible.begin(), eligible.end(), [](auto* a, auto* b) {
@@ -42,9 +40,7 @@ std::optional<ProxyId> PolicyRouter::select(const Job& job, const std::vector<Pr
       return proxy->rtt_ms <= 0.0;
     });
     if (!unmeasured.empty()) {
-      const auto* selected = unmeasured[rr_index_ % unmeasured.size()];
-      ++rr_index_;
-      return selected->id;
+      return unmeasured[rr_index_.fetch_add(1, std::memory_order_relaxed) % unmeasured.size()]->id;
     }
     return (*std::min_element(eligible.begin(), eligible.end(), [](auto* a, auto* b) {
       return a->rtt_ms != b->rtt_ms ? a->rtt_ms < b->rtt_ms : a->id < b->id;

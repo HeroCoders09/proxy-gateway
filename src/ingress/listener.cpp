@@ -141,7 +141,7 @@ void Listener::start() {
     throw std::runtime_error("cannot bind " + cfg_.listen_host + ":" + std::to_string(cfg_.listen_port) +
                              ": " + std::strerror(errno));
   }
-  if (::listen(fd.get(), 512) != 0) {
+  if (::listen(fd.get(), 2048) != 0) {
     throw std::runtime_error(std::string("listen() failed: ") + std::strerror(errno));
   }
   socklen_t len = sizeof addr;

@@ -70,13 +70,22 @@ class Metrics final : public MetricsSink {
   LatencyPercentiles gateway_overhead_percentiles() const;
 
  private:
+  class SampleRing {
+   public:
+    void observe(double ms);
+    std::vector<double> snapshot() const;
+
+   private:
+    mutable std::array<std::mutex, kLatencyRing> slot_mutexes_;
+    std::array<double, kLatencyRing> values_{};
+    std::array<uint64_t, kLatencyRing> sequence_{};
+    std::atomic<uint64_t> next_{0};
+  };
+
   std::array<std::atomic<uint64_t>, static_cast<size_t>(Counter::kCount)> counters_{};
   std::array<std::atomic<int64_t>, static_cast<size_t>(Gauge::kCount)> gauges_{};
-  mutable std::mutex mu_;
-  std::vector<double> ring_;
-  size_t next_ = 0;
-  std::vector<double> overhead_ring_;
-  size_t overhead_next_ = 0;
+  SampleRing ring_;
+  SampleRing overhead_ring_;
 };
 
 }  // namespace pg

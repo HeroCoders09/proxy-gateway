@@ -1,7 +1,7 @@
 # Handoff: Phase 6 Dashboard, metrics, benchmarks and demo
 
 - Owner: Codex   Updated: 2026-11-03   Branch: `codex/real-world-gateway`
-- Status: Phase 6 software acceptance complete. Changes are uncommitted for the repository owner to review and commit. Full project sign-off remains open because Phase 5 targets/evidence and source specification edits remain outstanding.
+- Status: Phase 6 software acceptance complete. Phase 6 implementation and acceptance evidence are included in commit `74c8577`. Full project sign-off remains open because Phase 5 targets/evidence and source specification edits remain outstanding.
 
 ## Implemented so far
 
@@ -34,14 +34,14 @@ All executable Phase 6 acceptance checks are complete. The editable SRS and Desi
 
 ## Phase 5 dependency status
 
-Phase 5 implementation is available, but its handoff lists unmet high-load throughput/concurrency/overhead targets and unavailable raw tcpdump evidence. Phase 6 acceptance does not close those Phase 5 items. Revisit them before final project sign-off.
+Phase 5 regression and measured acceptance checks now pass for keep-alive latency, 1,000 active requests, memory, and <=5 ms GatewayCore overhead in the final run. Throughput remains below 5,000 requests/s on the Python test bed, and the required raw tcpdump trace is blocked by missing capture capability (I-014). Phase 6 acceptance does not close those Phase 5 items; save the packet trace before final project sign-off.
 
 ## Scope notes
 
 - The scenario editor controls only the five local test-bed proxies, with bounded delay/failure injection and fixed presets. No external proxy-provider credentials or arbitrary endpoint editing are part of this implementation.
 - The dashboard scenario editor affects only the bundled five test-bed proxies. Provider endpoint configuration and upstream Basic auth are covered by the separate productization extension; HTTPS CONNECT remains out of scope (I-001).
 - The supplied Design Document is a PDF and the editable SRS/design sources are not in this checkout. D-039 records that specification updates remain needed before final release.
-- No commit or push has been made. The repository owner will review and commit the branch.
+- Phase 6 is committed locally as `74c8577`; Phase 5 follow-up is recorded in `docs/HANDOFF_PHASE_5.md`. The branch has not been pushed.
 
 ## Resume
 
