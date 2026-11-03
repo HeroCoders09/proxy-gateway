@@ -1,5 +1,6 @@
 build/
 build-*/
 testbed/.run/
+testbed/tls/certs/*.pem
 *.log
 __pycache__/

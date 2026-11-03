@@ -214,7 +214,7 @@ class EpollForwarder::Impl {
       conn->fd = std::move(fd);
       conn->proxy_id = task->proxy.id;
       conn->task = task;
-      conn->request = build_proxy_request(task->job, true);
+      conn->request = build_proxy_request(task->job, true, task->proxy.auth_username, task->proxy.auth_password);
       conn->deadline = Steady::now() + std::chrono::milliseconds(connect_timeout_ms_);
       conn->stage = (rc == 0) ? Stage::Writing : Stage::Connecting;
       int raw = conn->fd.get();
@@ -285,7 +285,7 @@ class EpollForwarder::Impl {
           if (metrics_) metrics_->add_gauge(Gauge::UpstreamIdleConnections, -1);
           conn.task = task;
           conn.stage = Stage::Writing;
-          conn.request = build_proxy_request(task->job, true);
+          conn.request = build_proxy_request(task->job, true, task->proxy.auth_username, task->proxy.auth_password);
           conn.sent = 0;
           conn.response.clear();
           conn.deadline = Steady::now() + std::chrono::milliseconds(response_timeout_ms_);

@@ -21,7 +21,13 @@ GatewayConfig config_for(const std::string& policy = "roundrobin", int count = 3
   GatewayConfig cfg;
   cfg.policy = policy;
   cfg.proxies.clear();
-  for (int i = 0; i < count; ++i) cfg.proxies.push_back({i, "127.0.0.1", static_cast<uint16_t>(3128 + i)});
+  for (int i = 0; i < count; ++i) {
+    ProxyEndpoint endpoint;
+    endpoint.id = i;
+    endpoint.host = "127.0.0.1";
+    endpoint.port = static_cast<uint16_t>(3128 + i);
+    cfg.proxies.push_back(std::move(endpoint));
+  }
   return cfg;
 }
 

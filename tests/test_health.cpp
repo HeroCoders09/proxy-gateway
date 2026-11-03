@@ -25,7 +25,11 @@ struct HealthForwarder final : Forwarder {
 
 GatewayConfig health_config() {
   GatewayConfig cfg;
-  cfg.proxies = {{0, "127.0.0.1", 3128}};
+  ProxyEndpoint endpoint;
+  endpoint.id = 0;
+  endpoint.host = "127.0.0.1";
+  endpoint.port = 3128;
+  cfg.proxies = {endpoint};
   cfg.circuit_threshold = 2;
   cfg.circuit_cooldown_ms = 10000;
   cfg.health_window_size = 4;

@@ -7,6 +7,7 @@ from pathlib import Path
 import signal
 import subprocess
 import sys
+import time
 from urllib.parse import parse_qs, urlsplit
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.error import URLError
@@ -61,16 +62,25 @@ def proxy_fault(name, **params):
 
 
 def restore_proxy3():
-    if docker_running("proxy3"):
-        subprocess.run(["docker", "start", "proxy3"], check=True, capture_output=True, timeout=10)
+    if docker_exists("proxy3"):
+        if not docker_running("proxy3"):
+            subprocess.run(["docker", "start", "proxy3"], check=True, capture_output=True, timeout=30)
     elif local_proxy_pid() is not None:
         local_proxy_signal(signal.SIGCONT)
-    elif docker_exists("proxy3"):
-        subprocess.run(["docker", "start", "proxy3"], check=True, capture_output=True, timeout=10)
     elif PROXY3_PID.exists():
         raise RuntimeError("Proxy 3 pid file is stale")
     else:
         raise RuntimeError("Proxy 3 is not present in the local or Docker test bed")
+
+    deadline = time.monotonic() + 30
+    while True:
+        try:
+            proxy_fault("proxy3")  # Wait until a restarted container accepts its control request.
+            return
+        except (OSError, URLError, ValueError):
+            if time.monotonic() >= deadline:
+                raise RuntimeError("Proxy 3 did not become ready within 30 seconds")
+            time.sleep(0.1)
 
 
 def apply_scenario(name):
@@ -189,7 +199,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if self.path == "/kill-proxy3":
                 if docker_running("proxy3"):
-                    subprocess.run(["docker", "stop", "proxy3"], check=True, capture_output=True, timeout=10)
+                    subprocess.run(["docker", "stop", "proxy3"], check=True, capture_output=True, timeout=30)
                 elif local_proxy_pid() is not None:
                     local_proxy_signal(signal.SIGSTOP)
                 elif docker_exists("proxy3"):

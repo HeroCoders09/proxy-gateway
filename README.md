@@ -2,7 +2,7 @@
 
 A C++20/Linux gateway that forwards a high volume of HTTP requests through the best proxy in a managed pool (scheduling, rate limiting, AIMD concurrency, routing policies, health checks and circuit breaking, keep-alive connection reuse, metrics and a demo dashboard). Group 1 project, Computer Networks, IIT Roorkee. Built in six serial phases; see the team handbook.
 
-**Status: Phase 6 implementation is in progress on `phase-6-dashboard`; it is not signed off.** The dashboard, controls, and demo are implemented, but the current worktree has not completed Phase 6 runtime/test validation or two demo rehearsals. Phase 5 performance acceptance also remains open. See `docs/PROGRESS.md` and `docs/HANDOFF_PHASE_6.md` for evidence and remaining work.
+**Status: Phase 6 software acceptance is complete on `codex/real-world-gateway`; Phase 5 performance acceptance and final project sign-off remain open.** The productization branch adds optional client authentication, exact egress host/port policies, per-upstream Basic auth from environment variables, and an optional TLS front end for Docker. Local and Docker TLS flows and Phase 6 dashboard/benchmark checks have been verified. Destination DNS/IP enforcement and TLS to upstream proxy providers remain open before internet-facing use. See [`docs/HANDOFF_PRODUCTIZATION.md`](docs/HANDOFF_PRODUCTIZATION.md) for productization limits, and [`docs/HANDOFF_PHASE_6.md`](docs/HANDOFF_PHASE_6.md) for acceptance evidence.
 
 ## Quick start
 
@@ -25,7 +25,7 @@ tests/e2e/run_phase1_acceptance.sh
 # stop with ./scripts/demo.sh stop
 ```
 
-The PriceLens dashboard monitors synthetic offers across three fictional retailer hosts through the local fault-injecting test proxies. It can change bounded delay/failure settings, apply named scenarios, switch routing/rate settings, and start the offer monitor or benchmark. These are controlled test-bed proxies, not external providers. See [`docs/DEMO.md`](docs/DEMO.md) for the walkthrough, real-proxy constraints, and [`docs/HANDOFF_PHASE_6.md`](docs/HANDOFF_PHASE_6.md) for validation status.
+The PriceLens dashboard monitors synthetic offers across three fictional retailer hosts through the local fault-injecting test proxies. It uses generated Basic client credentials and an exact host/port egress allowlist. It can change bounded proxy delay/failure settings, apply named scenarios, switch routing/rate settings, and start the offer monitor or benchmark. See [`docs/DEMO.md`](docs/DEMO.md) for the walkthrough and [`docs/HANDOFF_PHASE_6.md`](docs/HANDOFF_PHASE_6.md) for validation status.
 
 Run by hand:
 

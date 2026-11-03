@@ -102,7 +102,8 @@ ConnectOutcome connect_with_timeout(const std::string& host, uint16_t port, int 
 
 }  // namespace
 
-std::string build_proxy_request(const Job& job, bool keep_alive) {
+std::string build_proxy_request(const Job& job, bool keep_alive, const std::string& auth_username,
+                               const std::string& auth_password) {
   const bool default_port = (job.target_port == 80);
   std::string authority = job.target_host;
   if (!default_port) authority += ":" + std::to_string(job.target_port);
@@ -126,6 +127,22 @@ std::string build_proxy_request(const Job& job, bool keep_alive) {
     req += ": ";
     req += h.value;
     req += "\r\n";
+  }
+  if (!auth_username.empty()) {
+    static constexpr char alphabet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    const std::string raw = auth_username + ":" + auth_password;
+    std::string encoded;
+    encoded.reserve((raw.size() + 2) / 3 * 4);
+    for (size_t i = 0; i < raw.size(); i += 3) {
+      const uint32_t a = static_cast<unsigned char>(raw[i]);
+      const uint32_t b = i + 1 < raw.size() ? static_cast<unsigned char>(raw[i + 1]) : 0;
+      const uint32_t c = i + 2 < raw.size() ? static_cast<unsigned char>(raw[i + 2]) : 0;
+      const uint32_t triple = (a << 16) | (b << 8) | c;
+      encoded += alphabet[(triple >> 18) & 63]; encoded += alphabet[(triple >> 12) & 63];
+      encoded += i + 1 < raw.size() ? alphabet[(triple >> 6) & 63] : '=';
+      encoded += i + 2 < raw.size() ? alphabet[triple & 63] : '=';
+    }
+    req += "Proxy-Authorization: Basic " + encoded + "\r\n";
   }
   const bool has_body_method = (job.method == "POST" || job.method == "PUT" || job.method == "PATCH");
   if (!job.body.empty() || has_body_method) {
@@ -159,7 +176,7 @@ ForwardResult SimpleForwarder::forward(const Job& job, const ProxyState& proxy) 
   // The response clock starts once the connection is established.
   const auto deadline = clock_t_::now() + std::chrono::milliseconds(response_timeout_ms_);
 
-  const std::string request = build_proxy_request(job);
+  const std::string request = build_proxy_request(job, false, proxy.auth_username, proxy.auth_password);
   long long left = ms_left(deadline);
   if (left <= 0 || !write_all(conn.fd.get(), request, static_cast<int>(left))) {
     return finish(left <= 0 ? ErrorKind::ResponseTimeout : ErrorKind::IoError, "failed to send request to proxy");

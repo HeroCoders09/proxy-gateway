@@ -42,6 +42,8 @@ GatewayCore::GatewayCore(const GatewayConfig& cfg, Forwarder& forwarder, Metrics
     state.id = p.id;
     state.host = p.host;
     state.port = p.port;
+    state.auth_username = p.auth_username;
+    state.auth_password = p.auth_password;
     proxies_.push_back(std::move(state));
     rolling_.emplace(p.id, RollingStats(health_window_size_));
     breakers_.emplace(p.id, std::make_unique<CircuitBreaker>(circuit_threshold_,

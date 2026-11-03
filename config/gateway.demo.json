@@ -21,5 +21,13 @@
   "circuit": {"threshold": 5, "cooldown_ms": 10000, "probe_interval_ms": 2000, "window_size": 20},
   "weights": {"latency": 0.5, "load": 0.3, "failure": 0.2},
   "ingress": {"threads": 16, "max_header_bytes": 16384, "max_body_bytes": 1048576, "read_timeout_ms": 5000, "pending_connections": 1024},
-  "output": {"format": "csv", "path": "/tmp/phase6-demo-requests.csv"}
+  "output": {"format": "csv", "path": "/tmp/phase6-demo-requests.csv"},
+  "security": {
+    "client_auth": {"required": true, "username": "pricelens", "password_env": "PROXY_GATEWAY_CLIENT_PASSWORD"},
+    "egress": {
+      "allowlist_enabled": true,
+      "allowed_hosts": ["northstar.pricelens.test", "harbor.pricelens.test", "copperlane.pricelens.test"],
+      "allowed_ports": [80]
+    }
+  }
 }

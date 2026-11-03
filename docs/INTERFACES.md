@@ -46,7 +46,7 @@ Strict: unknown keys, wrong types and out-of-range values are rejected (exit cod
 | `listen.port` | int 1-65535 | 8000 | Client port |
 | `admin.host` | IPv4 string | `127.0.0.1` | Admin bind address (localhost by default, SRS security) |
 | `admin.port` | int 1-65535 | 9000 | Admin and dashboard port |
-| `proxies` | array of `{host: string, port: int}` | required, at least 1 | Proxy pool; `ProxyId` is the array index. Phase 1 uses element 0 only |
+| `proxies` | array of `{host: string, port: int, auth?: {username: string, password_env: string}}` | required, at least 1 | Proxy pool; `ProxyId` is the array index. Optional upstream Basic credentials are read from the named environment variable at startup; never put a password in config. |
 | `policy` | `random`, `roundrobin`, `leastconn`, `latency`, `weighted` | `roundrobin` | Active routing policy. Overridden by `--policy` |
 | `forwarder` | `simple`, `epoll` | `simple` | Forwarder implementation. `epoll` selects the non-blocking reactor with a bounded keep-alive pool (D-030) |
 | `forwarder_pool.max_connections_per_proxy` | int 1-4096 | 8 | Max open upstream sockets for one proxy (epoll only) |
@@ -73,19 +73,44 @@ Strict: unknown keys, wrong types and out-of-range values are rejected (exit cod
 | `ingress.pending_connections` | int >= 1 | 1024 | Bound on accepted-but-unserved connections; overflow gets 503 |
 | `output.format` | `none`, `csv`, `json` | `none` | Result writer (Phase 6) |
 | `output.path` | string | empty | Required when `format` is not `none` |
+| `security.client_auth.required` | bool | false | Require HTTP Basic proxy credentials on client requests; password comes from the configured environment variable and must be at least 16 characters |
+| `security.client_auth.username` | string | `pricelens` | Username checked when client authentication is required |
+| `security.client_auth.password_env` | string | `PROXY_GATEWAY_CLIENT_PASSWORD` | Environment variable name for the secret; the secret itself is not accepted in config |
+| `security.egress.allowlist_enabled` | bool | false | Require exact hostname and destination-port matches for client requests |
+| `security.egress.allowed_hosts` / `allowed_ports` | arrays | empty | Exact hostnames and integer ports; both must be non-empty when the allowlist is enabled; no wildcard support |
+
+Example authenticated upstream proxy (credentials are supplied through the process environment):
+
+```json
+{"proxies":[{"host":"proxy.provider.example","port":3128,"auth":{"username":"account-id","password_env":"UPSTREAM_PROXY_PASSWORD"}}]}
+```
+
+The gateway adds its configured upstream `Proxy-Authorization` header after stripping client-supplied `Proxy-*` headers. Current upstream connections use plain HTTP; do not send provider credentials across an untrusted network. Client-side TLS on port 8443 does not encrypt gateway-to-provider traffic.
+
+Example authenticated upstream proxy (credentials are supplied through the process environment):
+
+```json
+{"proxies":[{"host":"proxy.provider.example","port":3128,"auth":{"username":"account-id","password_env":"UPSTREAM_PROXY_PASSWORD"}}]}
+```
+
+The gateway adds its configured upstream `Proxy-Authorization` header after stripping client-supplied `Proxy-*` headers. Current upstream connections use plain HTTP; do not send provider credentials across an untrusted network. Client-side TLS on port 8443 does not encrypt gateway-to-provider traffic.
 
 CLI: `gateway --config FILE [--policy NAME] [--workers N] [--help]`. `--config` is required. Exit code 0 on `--help`, 2 for any configuration or CLI error (message `gateway: error: ...` on stderr), 1 if a port cannot be bound.
 
 Ready-made configs: `config/gateway.json` (documented three-proxy example), `config/gateway.local.json` (host gateway with the original three local proxies), `config/gateway.demo.json` (five-proxy PriceLens demo), and `config/gateway.docker.json` (five proxies for the optional gateway container; admin binds inside the container).
+
+The optional `tls` Compose profile places a stunnel TLS front end on host port 8443 in front of the container gateway. It requires `fullchain.pem` and `privkey.pem` under `TLS_CERT_DIR`; it uses TLS 1.2 or later and binds to `127.0.0.1` unless `TLS_BIND` is set. This protects the client-to-gateway transport and does not enable destination `CONNECT` tunneling.
 
 ## Gateway-generated responses
 
 | Status | When |
 | --- | --- |
 | 400 | Malformed, oversized or incomplete request (see D-007) |
+| 403 | Host/port destination is outside the enabled egress allowlist |
 | 502 | Connect failure after retries, I/O error or unparseable proxy response, handler exception, no eligible route |
 | 503 | Ingress pending queue full (later: domain queue full) |
 | 504 | Connect or response timeout |
+| 407 | Missing or invalid client proxy credentials when authentication is required; includes a Basic challenge |
 | 429 | Reserved |
 
 All are `text/plain` with a short fixed message. Proxied responses keep the target's status and gain `X-Gateway-Proxy: <proxy id>`. Phase 3 retries `ConnectTimeout`, `ResponseTimeout`, `ConnectFailed`, `IoError` and `BadResponse` transport results through a different proxy, with at most two retries. HTTP responses, including 5xx, pass through without retry.
@@ -244,6 +269,8 @@ Other paths return 404 `{"error":"not found"}`.
 - 2026-11-03 D-041: Dashboard can change bounded test-proxy delay and failure injection and apply named presets.
 - 2026-11-03 D-042: PriceLens demo monitors deterministic synthetic offers from three fictional retailer hosts.
 - 2026-11-03 D-043: Demo test bed expands to five independently configurable local proxies with latency and failure presets.
+- 2026-11-03 D-044: Optional Basic client authentication and exact egress host/port policies are documented.
+- 2026-11-03 D-045: An optional stunnel Compose profile wraps gateway client access in TLS.
 - 2026-11-02 D-032: Phase 5 adds configurable per-proxy and global pool limits plus idle eviction.
 - 2026-11-02 D-033: Phase 5 reports bounded gateway-core overhead percentiles.
 - 2026-11-02 D-034: Test proxy sets TCP_NODELAY to avoid a persistent-response timing artifact.

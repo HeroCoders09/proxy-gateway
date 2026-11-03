@@ -433,3 +433,23 @@ Append-only. Number decisions D-001, D-002 and so on. Never edit an old entry; s
 - Alternatives considered: Keep three proxies and change only their values; add provider-backed endpoints, which would require a selected provider and protocol/auth support.
 - Consequences: The Phase 6 local test bed binds ports 3131–3132 and 3231–3232 in addition to its existing proxy ports. Phase 1–5 verification scripts retain their three-proxy assumptions; the Docker gateway example now lists all five nodes.
 - Status: Active
+
+## D-044: Add optional Basic client authentication and exact egress allowlists
+- Date: 2026-11-03
+- Phase: Productization extension
+- Made by: Codex
+- Decision: Add optional HTTP Basic client authentication, sourcing the password from a named environment variable, and an optional exact hostname/port allowlist. Enable both in the loopback-only PriceLens demo. Do not accept secret values in JSON configuration.
+- Why: Client access and destination policy are prerequisites for a reusable outbound gateway; the existing local demo remains bounded to its fictional retailer targets.
+- Alternatives considered: Keep unrestricted requests and rely only on bind address; put credentials directly in tracked config; add wildcard host rules.
+- Consequences: Rejected credentials receive 407 and disallowed host/port pairs receive 403. Existing configs remain backward-compatible when security options are absent. Basic auth is plaintext without TLS, and hostname allowlists do not pin DNS results; see I-017 and I-018.
+- Status: Active
+
+## D-045: Offer TLS-wrapped gateway access through an optional Compose profile
+- Date: 2026-11-03
+- Phase: Productization extension
+- Made by: Codex
+- Decision: Add an optional `tls` Compose profile using stunnel to wrap the gateway's TCP listener. Require externally supplied certificate/key files for deployment, generate a self-signed localhost certificate only in the local demo script, use TLS 1.2 or later, and bind to loopback by default.
+- Why: Protect Basic client credentials on client-to-gateway connections without changing the gateway's existing socket/forwarder implementation in this slice.
+- Alternatives considered: Implement TLS throughout the C++ ingress and worker write path; expose plaintext gateway access beyond loopback.
+- Consequences: The TLS profile protects client-to-gateway transport only. Raw port 8000 remains loopback-published; TLS does not provide HTTPS CONNECT to destination sites. The image built and local handshake passed on 2026-11-03; production deployment still requires a trusted certificate and deliberate bind address.
+- Status: Active

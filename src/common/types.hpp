@@ -51,6 +51,9 @@ struct ProxyState {
   ProxyId id = -1;
   std::string host;
   uint16_t port = 0;
+  // Upstream proxy credentials are runtime-only and intentionally excluded from admin JSON.
+  std::string auth_username;
+  std::string auth_password;
   bool healthy = true;
   double rtt_ms = 0.0;  // recent RTT
   uint64_t success_count = 0;

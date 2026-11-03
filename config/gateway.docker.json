@@ -71,5 +71,21 @@
   "output": {
     "format": "none",
     "path": ""
+  },
+  "security": {
+    "client_auth": {
+      "required": true,
+      "username": "pricelens",
+      "password_env": "PROXY_GATEWAY_CLIENT_PASSWORD"
+    },
+    "egress": {
+      "allowlist_enabled": true,
+      "allowed_hosts": [
+        "northstar.pricelens.test",
+        "harbor.pricelens.test",
+        "copperlane.pricelens.test"
+      ],
+      "allowed_ports": [80]
+    }
   }
 }
