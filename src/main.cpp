@@ -1,133 +1,114 @@
-// Intelligent Concurrent Proxy Gateway entry point.
-#include <signal.h>
-
+#include "config.hpp"
+#include "gateway_server.hpp"
+#include "fd_budget.hpp"
 #include <atomic>
-#include <chrono>
-#include <cstdio>
-#include <cstdlib>
+#include <csignal>
 #include <cstring>
-#include <memory>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <iostream>
+#include <sys/resource.h>
 #include <thread>
 
-#include "admin/admin_server.hpp"
-#include "common/config.hpp"
-#include "common/log.hpp"
-#include "common/metrics.hpp"
-#include "gateway/gateway_core.hpp"
-#include "health/health_monitor.hpp"
-#include "ingress/listener.hpp"
-#include "net/epoll_forwarder.hpp"
-#include "net/simple_forwarder.hpp"
-#include "output/result_writer.hpp"
-#include "scheduler/domain_scheduler.hpp"
-#include "workers/worker_pool.hpp"
-
 namespace {
-std::atomic<bool> g_stop{false};
-void on_signal(int) { g_stop = true; }
-}  // namespace
+std::atomic<bool> g_shutdown{false};
+void signal_handler(int) {
+    g_shutdown.store(true);
+}
 
-int main(int argc, char** argv) {
-  using namespace pg;
-
-  GatewayConfig cfg;
-  try {
-    CliOptions opts = parse_cli(argc, argv);
-    if (opts.help) {
-      std::fputs(usage_text().c_str(), stdout);
-      return 0;
+// Many concurrent client + upstream sockets: raise the soft fd limit to the hard limit.
+void raise_fd_limit() {
+    rlimit rl{};
+    if (::getrlimit(RLIMIT_NOFILE, &rl) == 0 && rl.rlim_cur < rl.rlim_max) {
+        rl.rlim_cur = rl.rlim_max;
+        ::setrlimit(RLIMIT_NOFILE, &rl);
     }
-    if (opts.config_path.empty()) throw ConfigError("--config FILE is required (try --help)");
-    cfg = load_config_file(opts.config_path);
-    apply_cli_overrides(cfg, opts);
-    if (cfg.security.client_auth.required) {
-      const char* password = std::getenv(cfg.security.client_auth.password_env.c_str());
-      if (!password || std::strlen(password) < 16)
-        throw ConfigError("security.client_auth requires environment variable '" +
-                          cfg.security.client_auth.password_env + "' with at least 16 characters");
-      cfg.security.client_auth.password = password;
+}
+
+// `gateway --gen-admin-token [FILE]`: 256 random bits from the kernel CSPRNG, hex encoded. With FILE the token is
+// written to a NEW file created with mode 0600 (never overwrites); otherwise it is printed to stdout.
+int generate_admin_token(const char* file) {
+    unsigned char raw[32];
+    int rfd = ::open("/dev/urandom", O_RDONLY | O_CLOEXEC);
+    size_t got = 0;
+    while (rfd >= 0 && got < sizeof(raw)) {
+        ssize_t n = ::read(rfd, raw + got, sizeof(raw) - got);
+        if (n <= 0) break;
+        got += static_cast<size_t>(n);
     }
-    for (auto& proxy : cfg.proxies) {
-      if (proxy.auth_password_env.empty()) continue;
-      const char* password = std::getenv(proxy.auth_password_env.c_str());
-      if (!password || std::strlen(password) < 16)
-        throw ConfigError("proxy " + std::to_string(proxy.id) + " requires environment variable '" +
-                          proxy.auth_password_env + "' with at least 16 characters");
-      proxy.auth_password = password;
+    if (rfd >= 0) ::close(rfd);
+    if (got != sizeof(raw)) { std::cerr << "cannot read /dev/urandom\n"; return 1; }
+    static const char* hex = "0123456789abcdef";
+    std::string token;
+    for (unsigned char b : raw) { token += hex[b >> 4]; token += hex[b & 15]; }
+    std::memset(raw, 0, sizeof(raw));
+    if (!file) { std::cout << token << "\n"; return 0; }
+    int fd = ::open(file, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
+    if (fd < 0) { std::perror(file); return 1; }
+    ::fchmod(fd, 0600);   // independent of the umask
+    std::string line = token + "\n";
+    bool ok = ::write(fd, line.data(), line.size()) == static_cast<ssize_t>(line.size());
+    ::close(fd);
+    if (!ok) { std::cerr << "cannot write " << file << "\n"; return 1; }
+    std::cout << "Admin token written to " << file << " (mode 600). Use it with \"admin\": {\"token_file\": \"" << file << "\"}\n";
+    return 0;
+}
+} // namespace
+
+int main(int argc, char* argv[]) {
+    for (int i = 1; i < argc; ++i)
+        if (std::string(argv[i]) == "--gen-admin-token")
+            return generate_admin_token(i + 1 < argc && argv[i + 1][0] != '-' ? argv[i + 1] : nullptr);
+    gateway::GatewayConfig cfg;
+    try {
+        if (!gateway::parse_cli_args(argc, argv, cfg)) {
+            return 1;
+        }
+    } catch (const std::exception& ex) {
+        std::cerr << "Configuration Error: " << ex.what() << "\n";
+        return 1;
     }
-  } catch (const ConfigError& e) {
-    std::fprintf(stderr, "gateway: error: %s\n", e.what());
-    return 2;
-  }
 
-  // A client closing its socket must never kill the process.
-  ::signal(SIGPIPE, SIG_IGN);
-  struct sigaction sa{};
-  sa.sa_handler = on_signal;
-  sigemptyset(&sa.sa_mask);
-  ::sigaction(SIGINT, &sa, nullptr);
-  ::sigaction(SIGTERM, &sa, nullptr);
+    for (const auto& w : gateway::security_warnings(cfg)) std::cerr << "[Security] WARNING: " << w << "\n";
 
-  Metrics metrics;
-  ResultWriter result_writer(cfg.output, metrics);
-  std::unique_ptr<Forwarder> forwarder;
-  if (cfg.forwarder == "epoll")
-    forwarder = std::make_unique<EpollForwarder>(cfg.connect_timeout_ms, cfg.response_timeout_ms,
-                                                16u * 1024u * 1024u, cfg.forwarder_pool.max_connections_per_proxy,
-                                                cfg.forwarder_pool.idle_timeout_ms, &metrics,
-                                                cfg.forwarder_pool.max_total_connections);
-  else
-    forwarder = std::make_unique<SimpleForwarder>(cfg.connect_timeout_ms, cfg.response_timeout_ms);
-  GatewayCore core(cfg, *forwarder, metrics);
-  HealthMonitor health(cfg, core);
-  SteadyClock clock;
-  WorkerPool pool(cfg, core, metrics, &result_writer);
-  DomainScheduler scheduler(cfg, metrics, clock, [&pool](Job job, Fd client, bool head_only) {
-    pool.submit(std::move(job), std::move(client), head_only);
-  });
-  AdminServer admin(cfg, metrics, [&scheduler, &pool] {
-    return Phase2Stats{scheduler.queue_lengths(), pool.thread_count(), pool.aimd_limit(), pool.active_jobs()};
-  }, [&core] { return core.proxies(); }, [&result_writer] { return result_writer.recent(); },
-     [&core] { return core.policy(); }, [&core](const std::string& p) { return core.set_policy(p); },
-     [&scheduler](double rate, double burst) { scheduler.set_default_rate(rate, burst); },
-     [&core] { return core.health_aware(); }, [&core](bool enabled) { core.set_health_aware(enabled); });
-  Listener listener(cfg, metrics, [&scheduler, &result_writer](Job job, Fd client, bool head_only) {
-    const std::string safe_url = safe_result_url(job.url);
-    if (!scheduler.enqueue(std::move(job), client, head_only)) {
-      auto started = std::chrono::steady_clock::now();
-      HttpResponse response = make_error_response(503, "domain queue full");
-      write_response(client.get(), response, head_only, 5000);
-      const auto now = std::chrono::system_clock::now().time_since_epoch();
-      const double elapsed = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
-      result_writer.record({std::chrono::duration_cast<std::chrono::milliseconds>(now).count(),
-                            safe_url, response.status, -1, elapsed, false});
+    if (cfg.check_only) {
+        std::cout << "Configuration OK: port " << cfg.listen_port << ", policy "
+                  << gateway::policy_to_string(cfg.policy) << ", workers [" << cfg.workers_min << ".."
+                  << cfg.workers_max << " init=" << cfg.workers_initial << "], proxies " << cfg.proxies.size()
+                  << ", rate-limited domains " << cfg.domain_rate_limits.size() << "\n";
+        return 0;
     }
-  });
 
-  try {
-    result_writer.start();
-    pool.start();
-    scheduler.start();
-    admin.start();
-    listener.start();
-    health.start();
-  } catch (const std::exception& e) {
-    log_error(std::string("startup failed: ") + e.what());
-    return 1;
-  }
+    std::signal(SIGINT, signal_handler);
+    std::signal(SIGTERM, signal_handler);
+    std::signal(SIGPIPE, SIG_IGN);
+    raise_fd_limit();
+    {
+        rlimit rl{};
+        if (::getrlimit(RLIMIT_NOFILE, &rl) == 0)
+            for (const auto& n : gateway::apply_fd_budget(cfg, static_cast<long>(rl.rlim_cur)))
+                std::cerr << "[Limits] " << n << "\n";
+    }
 
-  log_info("gateway listening on " + cfg.listen_host + ":" + std::to_string(listener.port()) + ", admin on " +
-           cfg.admin_host + ":" + std::to_string(admin.port()));
-  log_info("routing via " + std::to_string(cfg.proxies.size()) + " configured proxies using policy '" + cfg.policy + "'");
+    gateway::GatewayServer server(cfg);
+    if (!server.start()) {
+        std::cerr << "Failed to start Intelligent Concurrent Proxy Gateway on " << cfg.listen_host << ":"
+                  << cfg.listen_port << "\n";
+        return 1;
+    }
 
-  while (!g_stop) std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    std::cout << "[Gateway] Listening on port " << server.port()
+              << " | Policy: " << gateway::policy_to_string(cfg.policy)
+              << " | Workers: [" << cfg.workers_min << ".." << cfg.workers_max
+              << " (init=" << cfg.workers_initial << ")]"
+              << " | Proxies: " << cfg.proxies.size() << std::endl;
 
-  log_info("shutting down");
-  listener.stop();
-  health.stop();
-  admin.stop();
-  scheduler.stop();
-  pool.stop();
-  result_writer.stop();
-  return 0;
+    while (!g_shutdown.load()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+
+    std::cout << "\n[Gateway] Shutting down cleanly..." << std::endl;
+    server.stop();
+    return 0;
 }

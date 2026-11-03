@@ -1,65 +1,47 @@
-cmake_minimum_required(VERSION 3.20)
-project(proxy_gateway VERSION 0.1.0 LANGUAGES CXX)
+cmake_minimum_required(VERSION 3.16)
+project(IntelligentProxyGateway VERSION 1.1 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-
-if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
-  set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "Build type" FORCE)
-endif()
-
-option(PG_SANITIZE "Build with AddressSanitizer + UndefinedBehaviorSanitizer" OFF)
-option(PG_BUILD_TESTS "Build unit tests" ON)
-
-add_compile_options(-Wall -Wextra)
-if(PG_SANITIZE)
-  add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=undefined)
-  add_link_options(-fsanitize=address,undefined)
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE Release)
 endif()
 
 find_package(Threads REQUIRED)
+add_compile_options(-Wall -Wextra -O3)
+include_directories(${CMAKE_SOURCE_DIR}/include)
 
-# Everything except main() lives in this library so tests can link it.
-add_library(pg_core STATIC
-  src/common/config.cpp
-  src/common/http_util.cpp
-  src/common/metrics.cpp
-  src/health/health_monitor.cpp
-  src/health/health_state.cpp
-  src/ingress/http_parser.cpp
-  src/ingress/http_response.cpp
-  src/ingress/listener.cpp
-  src/net/http_response_parser.cpp
-  src/net/epoll_forwarder.cpp
-  src/net/simple_forwarder.cpp
-  src/admin/admin_server.cpp
-  src/output/result_writer.cpp
-  src/gateway/gateway_core.cpp
-  src/routing/policy_router.cpp
-  src/scheduler/domain_scheduler.cpp
-  src/workers/aimd.cpp
-  src/workers/worker_pool.cpp
-)
-target_include_directories(pg_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/third_party)
-target_link_libraries(pg_core PUBLIC Threads::Threads)
-
+# 1. Core Intelligent Proxy Gateway
 add_executable(gateway src/main.cpp)
-target_link_libraries(gateway PRIVATE pg_core)
+target_link_libraries(gateway Threads::Threads)
 
-if(PG_BUILD_TESTS)
-  enable_testing()
-  add_library(catch2_amalgamated STATIC third_party/catch2/catch_amalgamated.cpp)
-  target_include_directories(catch2_amalgamated PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/third_party/catch2)
-  # Third-party code: do not fail or warn on its internals.
-  target_compile_options(catch2_amalgamated PRIVATE -w)
+# 2. Controlled proxy node (HTTP forward + CONNECT + SOCKS5, delay/failure injection)
+add_executable(proxy_node src/proxy_node.cpp)
+target_link_libraries(proxy_node Threads::Threads)
 
-  file(GLOB PG_TEST_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp)
-  add_executable(pg_tests ${PG_TEST_SOURCES})
-  target_link_libraries(pg_tests PRIVATE pg_core catch2_amalgamated)
-  target_compile_definitions(pg_tests PRIVATE PG_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
-  target_include_directories(pg_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
-  add_test(NAME unit COMMAND pg_tests)
-  set_tests_properties(unit PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+# 3. Deterministic target (origin) server
+add_executable(target_server src/target_server.cpp)
+target_link_libraries(target_server Threads::Threads)
+
+# 4. Closed-loop load generator
+add_executable(loadgen src/loadgen.cpp)
+target_link_libraries(loadgen Threads::Threads)
+
+# 5. Unit tests
+enable_testing()
+add_executable(unit_tests tests/unit_tests.cpp)
+target_link_libraries(unit_tests Threads::Threads)
+add_test(NAME GatewayUnitTests COMMAND unit_tests)
+
+# Mutation fuzzer for all parsers (quick in ctest; run it with millions of iterations and sanitizers for real fuzzing)
+add_executable(fuzz_parsers tests/fuzz_parsers.cpp)
+target_link_libraries(fuzz_parsers Threads::Threads)
+add_test(NAME ParserFuzzQuick COMMAND fuzz_parsers 20000 1)
+
+# 6. End-to-end tests (need python3)
+find_program(PYTHON3 python3)
+if(PYTHON3)
+  add_test(NAME GatewayE2E COMMAND ${PYTHON3} ${CMAKE_SOURCE_DIR}/scripts/e2e_test.py --build ${CMAKE_BINARY_DIR})
+  set_tests_properties(GatewayE2E PROPERTIES TIMEOUT 300)
 endif()

@@ -1,0 +1,64 @@
+
+services:
+  target:
+    build: .
+    image: intelligent-proxy-gateway:latest
+    container_name: target_server
+    command: ./build/target_server --port 9000
+    ports:
+      - "9000:9000"
+    networks:
+      - proxy_net
+
+  proxy1:
+    build: .
+    image: intelligent-proxy-gateway:latest
+    container_name: proxy_1_normal
+    command: ./build/proxy_node --port 8101 --delay-ms 0 --fail-rate 0.0
+    depends_on:
+      - target
+    networks:
+      - proxy_net
+
+  proxy2:
+    build: .
+    image: intelligent-proxy-gateway:latest
+    container_name: proxy_2_slow
+    command: ./build/proxy_node --port 8102 --delay-ms 100 --fail-rate 0.0
+    depends_on:
+      - target
+    networks:
+      - proxy_net
+
+  proxy3:
+    build: .
+    image: intelligent-proxy-gateway:latest
+    container_name: proxy_3_flaky
+    command: ./build/proxy_node --port 8103 --delay-ms 10 --fail-rate 0.20
+    depends_on:
+      - target
+    networks:
+      - proxy_net
+
+  gateway:
+    build: .
+    image: intelligent-proxy-gateway:latest
+    container_name: intelligent_proxy_gateway
+    command: ./build/gateway --config config/gateway.docker.json
+    # Proxy port: published to the network. Admin port (metrics, proxies): published on the HOST'S LOOPBACK ONLY and
+    # protected by a token. Create one with:  ./build/gateway --gen-admin-token .env-token  (then GATEWAY_ADMIN_TOKEN=$(cat .env-token))
+    ports:
+      - "8000:8000"
+      - "127.0.0.1:8001:8001"
+    environment:
+      GATEWAY_ADMIN_TOKEN: "${GATEWAY_ADMIN_TOKEN:?set GATEWAY_ADMIN_TOKEN (e.g. openssl rand -hex 32)}"
+    depends_on:
+      - proxy1
+      - proxy2
+      - proxy3
+    networks:
+      - proxy_net
+
+networks:
+  proxy_net:
+    driver: bridge

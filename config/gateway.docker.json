@@ -1,91 +1,21 @@
 {
-  "listen": {
-    "host": "0.0.0.0",
-    "port": 8000
-  },
-  "admin": {
-    "host": "0.0.0.0",
-    "port": 9000
-  },
+  "listen_host": "0.0.0.0",
+  "listen_port": 8000,
+  "max_queue_size": 10000,
+  "max_retries": 2,
+  "policy": "weighted",
+  "weights": { "w_latency": 0.5, "w_load": 0.3, "w_failure": 0.2 },
+  "workers": { "min": 4, "max": 64, "initial": 16, "alpha": 2, "beta": 0.5 },
+  "timeouts": { "connect_ms": 2000, "response_ms": 10000, "probe_interval_ms": 2000, "queue_ms": 30000 },
+  "circuit": { "failure_threshold": 5, "cooldown_sec": 10 },
+  "default_rate_limit": { "rate": 200.0, "burst": 400.0 },
+  "rate_limits": { "target:9000": { "rate": 5000.0, "burst": 5000.0 } },
   "proxies": [
-    {
-      "host": "proxy1",
-      "port": 3128
-    },
-    {
-      "host": "proxy2",
-      "port": 3128
-    },
-    {
-      "host": "proxy3",
-      "port": 3128
-    },
-    {
-      "host": "proxy4",
-      "port": 3128
-    },
-    {
-      "host": "proxy5",
-      "port": 3128
-    }
+    { "host": "proxy1", "port": 8101 },
+    { "host": "proxy2", "port": 8102 },
+    { "host": "proxy3", "port": 8103 }
   ],
-  "policy": "roundrobin",
-  "forwarder": "simple",
-  "rate_limits": {
-    "default": {
-      "rate": 1000,
-      "burst": 2000
-    },
-    "site-a.example": {
-      "rate": 50,
-      "burst": 50
-    }
-  },
-  "queue_limit": 10000,
-  "workers": {
-    "min": 4,
-    "max": 64,
-    "alpha": 1,
-    "beta": 0.5
-  },
-  "timeouts": {
-    "connect_ms": 2000,
-    "response_ms": 10000
-  },
-  "circuit": {
-    "threshold": 5,
-    "cooldown_ms": 10000
-  },
-  "weights": {
-    "latency": 0.5,
-    "load": 0.3,
-    "failure": 0.2
-  },
-  "ingress": {
-    "threads": 16,
-    "max_header_bytes": 16384,
-    "max_body_bytes": 1048576,
-    "read_timeout_ms": 5000,
-    "pending_connections": 1024
-  },
-  "output": {
-    "format": "none",
-    "path": ""
-  },
-  "security": {
-    "client_auth": {
-      "required": true,
-      "username": "pricelens",
-      "password_env": "PROXY_GATEWAY_CLIENT_PASSWORD"
-    },
-    "egress": {
-      "allowlist_enabled": true,
-      "allowed_hosts": [
-        "northstar.pricelens.test",
-        "harbor.pricelens.test",
-        "copperlane.pricelens.test"
-      ],
-      "allowed_ports": [80]
-    }
-  }
+  "admin": { "port": 8001, "listen_host": "0.0.0.0", "token_env": "GATEWAY_ADMIN_TOKEN" },
+  "probe_target_url": "http://target:9000/health",
+  "output": { "csv_path": "results.csv", "json_path": "results.jsonl" }
 }
